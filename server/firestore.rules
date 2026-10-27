@@ -1,0 +1,8 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Flutter uses Express; only the server Admin SDK can access these records.
+    // Admin bypasses rules: authorization and field allowlists live in the API.
+    match /{document=**} { allow read, write: if false; }
+  }
+}
