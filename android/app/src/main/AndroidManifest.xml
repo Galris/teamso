@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.INTERNET"/><application
-        android:label="teamup_app" android:allowBackup="false"
+    <uses-permission android:name="android.permission.INTERNET"/><application android:allowBackup="false"
+        android:label="TeamUp"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

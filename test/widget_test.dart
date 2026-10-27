@@ -58,6 +58,9 @@ void main() {
     await tester.ensureVisible(find.text('Đăng nhập'));
     await tester.tap(find.text('Đăng nhập'));
     await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.account_circle_outlined), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.account_circle_outlined));
+    await tester.pumpAndSettle();
     expect(find.text('nghi@example.com'), findsOneWidget);
     await tester.ensureVisible(find.text('Chỉnh sửa thông tin cá nhân'));
     await tester.tap(find.text('Chỉnh sửa thông tin cá nhân'));

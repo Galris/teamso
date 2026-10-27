@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 
 import 'controllers/session_controller.dart';
+import 'core/theme/app_theme.dart';
 import 'screens/auth/login_screen.dart';
-import 'screens/profile/profile_screen.dart';
+import 'screens/main_screen.dart';
 import 'widgets/auth_widgets.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const MyApp());
+  runApp(const TeamUpApp());
+}
+
+class TeamUpApp extends MyApp {
+  const TeamUpApp({super.key, super.session});
 }
 
 class MyApp extends StatefulWidget {
@@ -36,30 +41,10 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: session,
     builder: (context, _) => MaterialApp(
-      // Recreate the navigator when authentication changes, clearing private routes.
       key: ValueKey(session.user != null),
       debugShowCheckedModeBanner: false,
       title: 'TeamUp',
-      theme: ThemeData(
-        useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFFFAF8F0),
-        colorScheme: ColorScheme.fromSeed(seedColor: olive),
-        textTheme: const TextTheme(bodyMedium: TextStyle(color: ink)),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: Colors.white,
-          contentPadding: const EdgeInsets.all(17),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: Color(0xFFE5E3DA)),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: Color(0xFFE5E3DA)),
-          ),
-        ),
-      ),
-
+      theme: AppTheme.light,
       home: session.initializing
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
           : session.startupError != null
@@ -88,7 +73,7 @@ class _MyAppState extends State<MyApp> {
             )
           : session.user == null
           ? LoginScreen(session: session)
-          : ProfileScreen(session: session),
+          : MainScreen(session: session),
     ),
   );
 }

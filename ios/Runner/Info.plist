@@ -2,11 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSLocalNetworkUsageDescription</key>
-<string>Kết nối TeamUp API trên máy tính trong mạng nội bộ để thử ứng dụng.</string>
-<key>NSAppTransportSecurity</key>
-<dict><key>NSAllowsLocalNetworking</key><true/></dict>
-<key>CADisableMinimumFrameDurationOnPhone</key>
+	<key>NSLocalNetworkUsageDescription</key><string>Kết nối TeamUp API local để thử ứng dụng.</string><key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict><key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
