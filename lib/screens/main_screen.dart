@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../core/theme/app_colors.dart';
+import '../controllers/session_controller.dart';
+import 'profile/profile_screen.dart';
 import 'home/home_screen.dart';
 import 'tasks/task_board_screen.dart';
 import 'workspace/workspace_screen.dart';
@@ -8,7 +10,8 @@ import 'chat/chat_screen.dart';
 import 'notify/notification_screen.dart';
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({super.key});
+  const MainScreen({super.key, this.session});
+  final SessionController? session;
 
   @override
   State<MainScreen> createState() => _MainScreenState();
@@ -39,26 +42,23 @@ class _MainScreenState extends State<MainScreen> {
       appBar: AppBar(
         title: Text(
           _titles[_currentIndex],
-          style: const TextStyle(
-            fontSize: 23,
-            fontWeight: FontWeight.bold,
-          ),
+          style: const TextStyle(fontSize: 23, fontWeight: FontWeight.bold),
         ),
         actions: [
+          IconButton(onPressed: () {}, icon: const Icon(Icons.search)),
           IconButton(
-            onPressed: () {},
-            icon: const Icon(Icons.search),
-          ),
-          IconButton(
-            onPressed: () {},
+            onPressed: widget.session == null
+                ? null
+                : () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ProfileScreen(session: widget.session!),
+                    ),
+                  ),
             icon: const Icon(Icons.account_circle_outlined),
           ),
         ],
       ),
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _screens,
-      ),
+      body: IndexedStack(index: _currentIndex, children: _screens),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         backgroundColor: Colors.white,
