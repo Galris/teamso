@@ -13,7 +13,8 @@
     "local": "node scripts/dev-local.js",
     "emulators": "node scripts/emulators.js",
     "api": "node scripts/start-local.js",
-    "firebase:save": "node scripts/save-emulators.js"
+    "firebase:save": "node scripts/save-emulators.js",
+    "firebase:check-cloud": "node scripts/check-cloud.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
