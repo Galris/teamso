@@ -77,6 +77,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => Navigator.of(context).pop(true),
+                icon: const Icon(Icons.home_outlined),
+                label: const Text('Về trang chủ'),
+              ),
+            ),
             _ProfileHeader(user: user),
             Padding(
               padding: const EdgeInsets.fromLTRB(22, 28, 22, 0),
