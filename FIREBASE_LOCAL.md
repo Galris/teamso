@@ -6,7 +6,7 @@ Flutter → Express REST API → Firebase Authentication (tài khoản, mật kh
 
 Flutter giữ `http` và `flutter_secure_storage`. API giữ các endpoint đăng ký, đăng nhập, refresh, đăng xuất, xem/sửa hồ sơ, đổi mật khẩu. Firestore không lưu password/hash.
 
-Hiện dùng **Firebase Emulator local**, project giả `demo-teamup-local`, vì chưa có project Firebase cloud. Chưa upload dữ liệu cá nhân lên cloud.
+Nhóm đã có Firebase cloud **`teamup-7ae78`** cho Auth/Profile. Mỗi thành viên chạy API local với database online: xem **[FIREBASE_CLOUD.md](FIREBASE_CLOUD.md)**. Tài liệu dưới đây dành cho chế độ Emulator riêng với project giả `demo-teamup-local`; dữ liệu hai chế độ tách biệt.
 
 ## Chạy
 
@@ -42,16 +42,9 @@ Snapshot nằm ở `server/.local/firebase-data/`. `npm run local` tự lưu m�
 - UI vẫn có dự án minh họa khi API chưa trả trường projects; dữ liệu mẫu không cấp quyền dự án.
 - Flutter gọi Firestore thông qua Express/Admin SDK. Rules chặn client truy cập trực tiếp; API thực hiện kiểm tra token và whitelist field vì Admin SDK bypass rules.
 
-## Kết nối Firebase cloud sau này
+## Firebase cloud dùng chung
 
-1. Tạo project tại https://console.firebase.google.com/ bằng Google account của bạn.
-2. Authentication → Sign-in method: bật Email/Password.
-3. Tạo Firestore Database `(default)` và dùng `server/firestore.rules`.
-4. Lấy Project ID/Web API key trong Project settings; thiết lập Admin SDK credentials riêng cho backend.
-5. Sửa `.env`: `USE_FIREBASE_EMULATORS=false`, Project ID/API key thật, `GOOGLE_APPLICATION_CREDENTIALS` trỏ đến private-key JSON bên ngoài repository. Xóa hai biến FIREBASE_AUTH_EMULATOR_HOST/FIRESTORE_EMULATOR_HOST.
-6. Khởi động lại API. Không gửi private key vào chat hoặc đưa vào Flutter/Git.
-
-Code từ chối cấu hình trộn cloud/emulator. Chưa tự tạo project, bật billing hay deploy lên cloud.
+Xem [FIREBASE_CLOUD.md](FIREBASE_CLOUD.md) để cấu hình tài khoản Google riêng, mẫu cloud và chạy API trên từng máy. Không cần tạo lại project; không tự chuyển dữ liệu Emulator lên cloud.
 
 ## Postman
 

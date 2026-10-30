@@ -16,3 +16,5 @@ ui-debug.log
 firebase-export-*/
 auth_export/
 firestore_export/
+
+!.env.cloud.example
