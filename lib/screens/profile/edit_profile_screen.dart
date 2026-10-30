@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../../controllers/session_controller.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/utils/validators.dart';
 import '../../models/user_profile.dart';
-import '../../widgets/auth_widgets.dart';
-import '../../utils/validators.dart';
+import '../../widgets/app_frame.dart';
+import '../../widgets/auth_layout.dart' show FormMessage;
+import '../../widgets/primary_button.dart';
+import '../../widgets/user_avatar.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key, required this.session});
@@ -41,7 +45,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Frame(
+  Widget build(BuildContext context) => AppFrame(
     child: Column(
       children: [
         Row(
@@ -68,12 +72,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               key: form,
               child: Column(
                 children: [
-                  Avatar(large: true, url: original.avatarUrl),
+                  UserAvatar(large: true, url: original.avatarUrl),
                   const SizedBox(height: 12),
                   const Text(
                     'THÔNG TIN CÁ NHÂN',
                     style: TextStyle(
-                      color: olive,
+                      color: AppColors.darkPurple,
                       fontSize: 10,
                       letterSpacing: 2,
                     ),
@@ -143,7 +147,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   ),
                   const SizedBox(height: 16),
                   if (error != null)
-                    Text(error!, style: const TextStyle(color: Colors.red)),
+                    FormMessage(error!),
                   if (busy) const LinearProgressIndicator(),
                   PrimaryButton(
                     busy ? 'Đang lưu…' : 'Lưu thay đổi',

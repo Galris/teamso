@@ -1,17 +1,18 @@
 import 'package:flutter/material.dart';
 
-import '../core/theme/app_colors.dart';
-import '../controllers/session_controller.dart';
-import 'profile/profile_screen.dart';
-import 'home/home_screen.dart';
-import 'tasks/task_board_screen.dart';
-import 'workspace/workspace_screen.dart';
-import 'chat/chat_screen.dart';
-import 'notify/notification_screen.dart';
+import '../../controllers/projects_controller.dart';
+import '../../controllers/session_controller.dart';
+import '../../core/theme/app_colors.dart';
+import '../chat/chat_screen.dart';
+import '../home/home_screen.dart';
+import '../notify/notification_screen.dart';
+import '../profile/profile_screen.dart';
+import '../tasks/task_board_screen.dart';
+import '../workspace/workspace_screen.dart';
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({super.key, this.session});
-  final SessionController? session;
+  const MainScreen({super.key, required this.session});
+  final SessionController session;
 
   @override
   State<MainScreen> createState() => _MainScreenState();
@@ -20,13 +21,31 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
-  final List<Widget> _screens = const [
-    HomeScreen(),
-    TaskBoardScreen(),
-    WorkspaceScreen(),
-    ChatScreen(),
-    NotificationScreen(),
+  // Một nguồn dữ liệu API dùng chung cho Home và Task Board.
+  late final ProjectsController _projects = ProjectsController(
+    widget.session.api,
+    widget.session.user!.id,
+  );
+
+  late final List<Widget> _screens = [
+    HomeScreen(session: widget.session, projects: _projects),
+    TaskBoardScreen(projects: _projects),
+    const WorkspaceScreen(),
+    const ChatScreen(),
+    const NotificationScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _projects.load();
+  }
+
+  @override
+  void dispose() {
+    _projects.dispose();
+    super.dispose();
+  }
 
   final List<String> _titles = const [
     'TeamUp',
@@ -47,13 +66,12 @@ class _MainScreenState extends State<MainScreen> {
         actions: [
           IconButton(onPressed: () {}, icon: const Icon(Icons.search)),
           IconButton(
-            onPressed: widget.session == null
-                ? null
-                : () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => ProfileScreen(session: widget.session!),
-                    ),
-                  ),
+            tooltip: 'Hồ sơ cá nhân',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => ProfileScreen(session: widget.session),
+              ),
+            ),
             icon: const Icon(Icons.account_circle_outlined),
           ),
         ],

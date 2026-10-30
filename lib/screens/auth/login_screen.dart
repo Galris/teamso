@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../controllers/session_controller.dart';
-import '../../widgets/auth_widgets.dart';
-import '../../utils/validators.dart';
+import '../../core/utils/validators.dart';
+import '../../widgets/auth_layout.dart';
+import '../../widgets/primary_button.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -19,6 +20,16 @@ class _LoginScreenState extends State<LoginScreen> {
   bool hidden = true;
   bool busy = false;
   String? error;
+  String? notice;
+
+  @override
+  void initState() {
+    super.initState();
+    // Lấy thông báo một lần (vd. vừa đổi mật khẩu) rồi xóa khỏi session.
+    notice = widget.session.notice;
+    widget.session.notice = null;
+  }
+
   @override
   void dispose() {
     username.dispose();
@@ -27,50 +38,25 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Frame(
-    child: AutofillGroup(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(28),
+  Widget build(BuildContext context) => AuthLayout(
+    title: 'Chào mừng trở lại',
+    subtitle: 'Đăng nhập để tiếp tục hành trình của bạn.',
+    children: [
+      AutofillGroup(
         child: Form(
           key: form,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 36),
-              const Icon(Icons.spa_rounded, color: olive, size: 48),
-              const Text(
-                'TeamUp',
-                style: TextStyle(
-                  fontSize: 38,
-                  fontWeight: FontWeight.w900,
-                  color: ink,
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Cùng nhau hoàn thành điều tuyệt vời.',
-                style: TextStyle(color: Colors.black54),
-              ),
-              const SizedBox(height: 46),
-              const Text(
-                'Chào mừng trở lại 👋',
-                style: TextStyle(
-                  fontSize: 25,
-                  fontWeight: FontWeight.bold,
-                  color: ink,
-                ),
-              ),
-              const SizedBox(height: 10),
-              const Text('Đăng nhập để tiếp tục hành trình của bạn.'),
-              const SizedBox(height: 28),
+              if (notice != null) FormMessage(notice!, isError: false),
               TextFormField(
                 controller: username,
                 keyboardType: TextInputType.text,
+                textInputAction: TextInputAction.next,
                 autofillHints: const [AutofillHints.username],
                 decoration: const InputDecoration(
                   labelText: 'Tên đăng nhập',
-                  prefixIcon: Icon(Icons.mail_outline),
+                  prefixIcon: Icon(Icons.person_outline),
                 ),
                 validator: usernameValidator,
               ),
@@ -95,55 +81,54 @@ class _LoginScreenState extends State<LoginScreen> {
                 validator: passwordValidator,
                 onFieldSubmitted: (_) => submit(),
               ),
-              const SizedBox(height: 28),
-              if (error != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Text(
-                    error!,
-                    style: const TextStyle(color: Colors.red),
-                  ),
+              const SizedBox(height: 24),
+              if (error != null) FormMessage(error!),
+              if (busy)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: LinearProgressIndicator(),
                 ),
-              if (busy) const LinearProgressIndicator(),
               PrimaryButton(
                 busy ? 'Đang đăng nhập…' : 'Đăng nhập',
                 onPressed: busy ? null : submit,
               ),
-              const SizedBox(height: 24),
-              TextButton(
-                onPressed: busy
-                    ? null
-                    : () => Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                          builder: (_) =>
-                              RegisterScreen(session: widget.session),
-                        ),
-                      ),
-                child: const Text('Chưa có tài khoản? Đăng ký'),
-              ),
-              const SizedBox(height: 35),
-              const Center(
-                child: Text(
-                  'TEAMUP  /  AUTH & PROFILE',
-                  style: TextStyle(
-                    fontSize: 10,
-                    letterSpacing: 2,
-                    color: olive,
-                  ),
+              const SizedBox(height: 12),
+              Center(
+                child: TextButton(
+                  onPressed: busy ? null : openRegister,
+                  child: const Text('Chưa có tài khoản? Đăng ký'),
                 ),
               ),
             ],
           ),
         ),
       ),
-    ),
+    ],
   );
+
+  Future<void> openRegister() async {
+    // Đăng ký xong trả về username để điền sẵn vào form đăng nhập.
+    final registered = await Navigator.push<String>(
+      context,
+      MaterialPageRoute<String>(
+        builder: (_) => RegisterScreen(session: widget.session),
+      ),
+    );
+    if (!mounted || registered == null) return;
+    setState(() {
+      username.text = registered;
+      password.clear();
+      error = null;
+      notice = 'Đăng ký thành công. Hãy đăng nhập bằng tài khoản vừa tạo.';
+    });
+  }
+
   Future<void> submit() async {
     if (busy || !form.currentState!.validate()) return;
     setState(() {
       busy = true;
       error = null;
+      notice = null;
     });
     try {
       await widget.session.signIn(username.text.trim(), password.text);

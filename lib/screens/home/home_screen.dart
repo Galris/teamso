@@ -1,29 +1,21 @@
 import 'package:flutter/material.dart';
 
-import '../tasks/task_store.dart';
+import '../../controllers/session_controller.dart';
+import '../../core/theme/app_colors.dart';
+import '../../controllers/projects_controller.dart';
 import 'project_detail_screen.dart';
 
-const Color teamUpGreen = Color(0xFF439751);
-const Color teamUpPurple = Color(0xFF867CB3);
-const Color teamUpPink = Color(0xFFF472B6);
-const Color teamUpYellow = Color(0xFFFACC15);
-const Color teamUpDarkPurple = Color(0xFF4D4379);
-
-const Color _borderColor = Color(0xFFE8E6ED);
-const Color _textColor = Color(0xFF252331);
-const Color _secondaryColor = Color(0xFF777482);
-const Color _pageBackground = Color(0xFFF8F7FA);
-
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, required this.session, required this.projects});
+  final SessionController session;
+  final ProjectsController projects;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen>
-    with RouteAware {
-  final TaskStore _store = TaskStore.instance;
+class _HomeScreenState extends State<HomeScreen> {
+  ProjectsController get _data => widget.projects;
   final TextEditingController _searchController =
       TextEditingController();
 
@@ -32,10 +24,10 @@ class _HomeScreenState extends State<HomeScreen>
   List<Map<String, dynamic>> get _filteredProjects {
     final query = _searchController.text.trim().toLowerCase();
 
-    return _store.projectsForCurrentUser().where((project) {
+    return _data.projects.where((project) {
       final name = project['name']?.toString() ?? '';
       final tag = project['tag']?.toString() ?? '';
-      final role = _store.roleInProject(project['id'].toString());
+      final role = _data.roleInProject(_data.projectId(project));
 
       final matchesSearch =
           name.toLowerCase().contains(query) ||
@@ -64,13 +56,13 @@ class _HomeScreenState extends State<HomeScreen>
     switch (project['tag']?.toString()) {
       case 'Mobile':
       case 'Mobile App':
-        return teamUpGreen;
+        return AppColors.green;
       case 'Marketing':
-        return teamUpPink;
+        return AppColors.pink;
       case 'Research':
-        return teamUpYellow;
+        return AppColors.yellow;
       default:
-        return teamUpPurple;
+        return AppColors.purple;
     }
   }
 
@@ -88,36 +80,37 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  int _projectProgress(String projectId) {
-    final projectTasks = _store.tasksForProject(projectId);
+  int _projectProgress(String projectId) => _data.progressOf(projectId);
 
-    if (projectTasks.isEmpty) return 0;
+  int _projectMemberCount(Map<String, dynamic> project) =>
+      _data.memberCount(project);
 
-    final completed = projectTasks
-        .where((task) => task['status'] == 'Hoàn thành')
-        .length;
-
-    return ((completed / projectTasks.length) * 100).round();
+  String _displayName() {
+    final name = widget.session.user?.name.trim() ?? '';
+    return name.isEmpty ? 'bạn' : name;
   }
 
-  int _projectMemberCount(Map<String, dynamic> project) {
-    final members = project['members'] as List<dynamic>? ?? [];
-    return members.length;
+  String _greeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 11) return 'Chào buổi sáng';
+    if (hour < 14) return 'Chào buổi trưa';
+    if (hour < 18) return 'Chào buổi chiều';
+    return 'Chào buổi tối';
   }
 
   void _openProject(Map<String, dynamic> project) {
-    final projectId = project['id'].toString();
+    final projectId = _data.projectId(project);
 
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => ProjectDetailScreen(
           projectId: projectId,
+          apiClient: widget.session.api,
+          currentUserId: widget.session.user?.id,
         ),
       ),
-    ).then((_) {
-      if (mounted) setState(() {});
-    });
+    ).then((_) => _data.load(silent: true));
   }
 
   void _showProjectOptions() {
@@ -138,14 +131,14 @@ class _HomeScreenState extends State<HomeScreen>
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
-                    color: _textColor,
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 12),
                 ListTile(
                   leading: const Icon(
                     Icons.add_box_outlined,
-                    color: teamUpDarkPurple,
+                    color: AppColors.darkPurple,
                   ),
                   title: const Text('Tạo project mới'),
                   onTap: () {
@@ -162,7 +155,7 @@ class _HomeScreenState extends State<HomeScreen>
                 ListTile(
                   leading: const Icon(
                     Icons.group_add_outlined,
-                    color: teamUpGreen,
+                    color: AppColors.green,
                   ),
                   title: const Text('Tham gia project'),
                   onTap: () {
@@ -193,14 +186,14 @@ class _HomeScreenState extends State<HomeScreen>
         label: Text(label),
         selected: selected,
         showCheckmark: false,
-        selectedColor: teamUpDarkPurple,
+        selectedColor: AppColors.darkPurple,
         backgroundColor: Colors.white,
         side: BorderSide(
-          color: selected ? teamUpDarkPurple : _borderColor,
+          color: selected ? AppColors.darkPurple : AppColors.border,
         ),
         labelStyle: TextStyle(
           fontSize: 12,
-          color: selected ? Colors.white : _textColor,
+          color: selected ? Colors.white : AppColors.textPrimary,
         ),
         onSelected: (_) {
           setState(() => _filter = label);
@@ -224,17 +217,17 @@ class _HomeScreenState extends State<HomeScreen>
         style: TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.w600,
-          color: color == teamUpYellow ? teamUpDarkPurple : color,
+          color: color == AppColors.yellow ? AppColors.darkPurple : color,
         ),
       ),
     );
   }
 
   Widget _buildProjectCard(Map<String, dynamic> project) {
-    final projectId = project['id'].toString();
+    final projectId = _data.projectId(project);
     final name = project['name']?.toString() ?? 'Dự án';
     final tag = project['tag']?.toString() ?? 'Project';
-    final role = _store.roleInProject(projectId);
+    final role = _data.roleInProject(projectId);
     final isLeader = role == 'Leader';
     final color = _projectColor(project);
     final progress = _projectProgress(projectId);
@@ -249,7 +242,7 @@ class _HomeScreenState extends State<HomeScreen>
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
-          side: const BorderSide(color: _borderColor),
+          side: const BorderSide(color: AppColors.border),
         ),
         child: Padding(
           padding: const EdgeInsets.all(14),
@@ -282,7 +275,7 @@ class _HomeScreenState extends State<HomeScreen>
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: _textColor,
+                            color: AppColors.textPrimary,
                           ),
                         ),
                         const SizedBox(height: 7),
@@ -292,7 +285,7 @@ class _HomeScreenState extends State<HomeScreen>
                           children: [
                             _smallTag(
                               role,
-                              isLeader ? teamUpPurple : teamUpGreen,
+                              isLeader ? AppColors.purple : AppColors.green,
                             ),
                             _smallTag(tag, color),
                           ],
@@ -302,7 +295,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                   const Icon(
                     Icons.chevron_right_rounded,
-                    color: _secondaryColor,
+                    color: AppColors.textSecondary,
                   ),
                 ],
               ),
@@ -315,10 +308,10 @@ class _HomeScreenState extends State<HomeScreen>
                       child: LinearProgressIndicator(
                         value: progress / 100,
                         minHeight: 7,
-                        backgroundColor: _borderColor,
+                        backgroundColor: AppColors.border,
                         valueColor:
                             const AlwaysStoppedAnimation<Color>(
-                          teamUpGreen,
+                          AppColors.green,
                         ),
                       ),
                     ),
@@ -328,21 +321,21 @@ class _HomeScreenState extends State<HomeScreen>
                     '$progress%',
                     style: const TextStyle(
                       fontSize: 12,
-                      color: _secondaryColor,
+                      color: AppColors.textSecondary,
                     ),
                   ),
                   const SizedBox(width: 10),
                   const Icon(
                     Icons.people_outline,
                     size: 17,
-                    color: _secondaryColor,
+                    color: AppColors.textSecondary,
                   ),
                   const SizedBox(width: 4),
                   Text(
                     '$memberCount',
                     style: const TextStyle(
                       fontSize: 12,
-                      color: _secondaryColor,
+                      color: AppColors.textSecondary,
                     ),
                   ),
                 ],
@@ -354,22 +347,102 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildProjectsSection() {
+    if (!_data.loaded) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 60),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_data.error != null && _data.projects.isEmpty) {
+      return _stateMessage(
+        icon: Icons.cloud_off_outlined,
+        title: _data.error!,
+        action: TextButton.icon(
+          onPressed: _data.load,
+          icon: const Icon(Icons.refresh),
+          label: const Text('Thử lại'),
+        ),
+      );
+    }
+    if (_data.projects.isEmpty) {
+      return _stateMessage(
+        icon: Icons.folder_open_rounded,
+        title: 'Chưa có dự án',
+        subtitle: 'Bạn chưa tham gia dự án nào.',
+      );
+    }
     final projects = _filteredProjects;
+    if (projects.isEmpty) {
+      return _stateMessage(
+        icon: Icons.search_off,
+        title: 'Không tìm thấy dự án phù hợp',
+      );
+    }
+    return Column(
+      children: [
+        for (final project in projects)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _buildProjectCard(project),
+          ),
+      ],
+    );
+  }
+
+  Widget _stateMessage({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    Widget? action,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 40),
+      child: Column(
+        children: [
+          Icon(icon, size: 44, color: AppColors.textSecondary),
+          const SizedBox(height: 12),
+          Text(title, textAlign: TextAlign.center),
+          if (subtitle != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+          if (action != null) ...[const SizedBox(height: 8), action],
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: _data,
+    builder: (context, _) => _buildPage(context),
+  );
+
+  Widget _buildPage(BuildContext context) {
+    final count = _data.projects.length;
 
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        child: ListView(
+        child: RefreshIndicator(
+          onRefresh: _data.load,
+          child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
           children: [
             Text(
-              'Chào buổi chiều, ${_store.memberName(_store.currentUserId)}! 👋',
+              '${_greeting()}, ${_displayName()}! 👋',
               style: const TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
-                color: _textColor,
+                color: AppColors.textPrimary,
               ),
             ),
             const SizedBox(height: 6),
@@ -377,7 +450,7 @@ class _HomeScreenState extends State<HomeScreen>
               'Cùng nhau tạo nên những dự án tuyệt vời!',
               style: TextStyle(
                 fontSize: 13,
-                color: _secondaryColor,
+                color: AppColors.textSecondary,
               ),
             ),
             const SizedBox(height: 20),
@@ -397,14 +470,14 @@ class _HomeScreenState extends State<HomeScreen>
                         icon: const Icon(Icons.close),
                       ),
                 filled: true,
-                fillColor: _pageBackground,
+                fillColor: AppColors.pageBackground,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: _borderColor),
+                  borderSide: const BorderSide(color: AppColors.border),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: _borderColor),
+                  borderSide: const BorderSide(color: AppColors.border),
                 ),
               ),
             ),
@@ -428,47 +501,27 @@ class _HomeScreenState extends State<HomeScreen>
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: _textColor,
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 Text(
-                  '${projects.length} dự án',
+                  '$count dự án',
                   style: const TextStyle(
                     fontSize: 12,
-                    color: _secondaryColor,
+                    color: AppColors.textSecondary,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 14),
-            if (projects.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 40),
-                child: Column(
-                  children: [
-                    Icon(
-                      Icons.search_off,
-                      size: 44,
-                      color: _secondaryColor,
-                    ),
-                    SizedBox(height: 12),
-                    Text('Không tìm thấy dự án phù hợp'),
-                  ],
-                ),
-              )
-            else
-              ...projects.map(
-                (project) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _buildProjectCard(project),
-                ),
-              ),
+            _buildProjectsSection(),
           ],
+        ),
         ),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _showProjectOptions,
-        backgroundColor: teamUpDarkPurple,
+        backgroundColor: AppColors.darkPurple,
         foregroundColor: Colors.white,
         child: const Icon(Icons.add),
       ),

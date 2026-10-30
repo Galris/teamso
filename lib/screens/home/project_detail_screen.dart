@@ -1,759 +1,830 @@
 import 'package:flutter/material.dart';
-import 'package:teamup_app/screens/tasks/task_store.dart';
 
-const Color teamUpGreen = Color(0xFF439751);
-const Color teamUpPurple = Color(0xFF867CB3);
-const Color teamUpPink = Color(0xFFF472B6);
-const Color teamUpYellow = Color(0xFFFACC15);
-const Color teamUpDarkPurple = Color(0xFF4D4379);
+import 'package:url_launcher/url_launcher.dart';
 
-const Color _background = Color(0xFFF7F7FB);
-const Color _textPrimary = Color(0xFF282638);
-const Color _textSecondary = Color(0xFF858397);
+import '../../core/theme/app_colors.dart';
+import '../../services/api_client.dart';
 
+/// Project detail screen backed by ApiClient.
 class ProjectDetailScreen extends StatefulWidget {
   final String projectId;
+  final ApiClient? apiClient;
+  final String? currentUserId;
 
   const ProjectDetailScreen({
     super.key,
     required this.projectId,
+    this.apiClient,
+    this.currentUserId,
   });
 
   @override
-  State<ProjectDetailScreen> createState() =>
-      _ProjectDetailScreenState();
+  State<ProjectDetailScreen> createState() => _ProjectDetailScreenState();
 }
 
 class _ProjectDetailScreenState extends State<ProjectDetailScreen>
     with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+  late final TabController _tabController;
+  late final ApiClient _api;
 
-  final TaskStore _store = TaskStore.instance;
+  bool _loading = true;
+  bool _busy = false;
+  String? _error;
+  Map<String, dynamic>? _project;
+  List<Map<String, dynamic>> _tasks = [];
+  List<Map<String, dynamic>> _members = [];
+
+  String get _currentUserId => _currentUserIdFromProject();
+
+  // Adjust these paths to match your backend's actual routes.
+  String get _projectPath =>
+      '/projects/${Uri.encodeComponent(widget.projectId)}';
+  String get _tasksPath => '$_projectPath/tasks';
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _api = widget.apiClient ?? ApiClient();
+    _loadPage();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    if (widget.apiClient == null) {
+      _api.close();
+    }
     super.dispose();
   }
 
-  Map<String, dynamic>? get _project =>
-      _store.projectById(widget.projectId);
-
-  String get _role =>
-      _store.roleInProject(widget.projectId);
-
-  bool get _isLeader => _role == 'Leader';
-
-  List<Map<String, dynamic>> get _projectTasks {
-    final result = _store.tasksForProject(widget.projectId);
-
-    result.sort((a, b) {
-      final dateA =
-          DateTime.tryParse(a['dueDate']?.toString() ?? '');
-      final dateB =
-          DateTime.tryParse(b['dueDate']?.toString() ?? '');
-
-      if (dateA == null && dateB == null) return 0;
-      if (dateA == null) return 1;
-      if (dateB == null) return -1;
-
-      return dateA.compareTo(dateB);
-    });
-
-    return result;
+  Map<String, dynamic>? _asMap(dynamic value) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+    if (value is Map) {
+      return value.map((key, value) => MapEntry('$key', value));
+    }
+    return null;
   }
 
-  int _countStatus(String status) {
-    return _projectTasks
-        .where((task) => task['status'] == status)
-        .length;
+  List<Map<String, dynamic>> _asMapList(dynamic value) {
+    if (value is! List) {
+      return [];
+    }
+    return value.map(_asMap).whereType<Map<String, dynamic>>().toList();
+  }
+
+  dynamic _firstValue(Map<String, dynamic> json, List<String> keys) {
+    for (final key in keys) {
+      if (json.containsKey(key) && json[key] != null) {
+        return json[key];
+      }
+    }
+    return null;
+  }
+
+  String _stringValue(
+    Map<String, dynamic> json,
+    List<String> keys, {
+    String fallback = '',
+  }) {
+    final value = _firstValue(json, keys);
+    return value == null ? fallback : value.toString();
+  }
+
+  List<Map<String, dynamic>> _extractList(
+    Map<String, dynamic> response,
+    List<String> keys,
+  ) {
+    for (final key in keys) {
+      final direct = _asMapList(response[key]);
+      if (direct.isNotEmpty || response[key] is List) {
+        return direct;
+      }
+    }
+    final data = _asMap(response['data']);
+    if (data != null) {
+      for (final key in keys) {
+        final nested = _asMapList(data[key]);
+        if (nested.isNotEmpty || data[key] is List) {
+          return nested;
+        }
+      }
+    }
+    return [];
+  }
+
+  Future<void> _loadPage({bool showLoading = true}) async {
+    if (showLoading && mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+
+    try {
+      final results = await Future.wait([
+        _api.request('GET', _projectPath, protected: true),
+        _api.request('GET', _tasksPath, protected: true),
+      ]);
+
+      final projectResponse = results[0];
+      final taskResponse = results[1];
+      final projectData = _asMap(projectResponse['data']);
+      final project =
+          _asMap(projectResponse['project']) ??
+          _asMap(projectData?['project']) ??
+          projectData ??
+          projectResponse;
+      final taskList = _extractList(taskResponse, const [
+        'tasks',
+        'items',
+        'results',
+        'data',
+      ]);
+
+      final rawMembers = _firstValue(project, const [
+        'members',
+        'projectMembers',
+      ]);
+      final members = _asMapList(rawMembers);
+      final sortedTasks = [...taskList];
+      sortedTasks.sort((a, b) {
+        final aDate = DateTime.tryParse(
+          _stringValue(a, const ['dueDate', 'due_date', 'deadline']),
+        );
+        final bDate = DateTime.tryParse(
+          _stringValue(b, const ['dueDate', 'due_date', 'deadline']),
+        );
+        if (aDate == null && bDate == null) {
+          return 0;
+        }
+        if (aDate == null) {
+          return 1;
+        }
+        if (bDate == null) {
+          return -1;
+        }
+        return aDate.compareTo(bDate);
+      });
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _project = project;
+        _tasks = sortedTasks;
+        _members = members;
+        _loading = false;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _loading = false;
+        _error = e.toString();
+      });
+    }
+  }
+
+  String get _role {
+    final project = _project ?? {};
+    final role = _stringValue(project, const [
+      'myRole',
+      'role',
+      'currentUserRole',
+    ]);
+    if (role.isNotEmpty) {
+      return role;
+    }
+    final leaderId = _stringValue(project, const [
+      'leaderId',
+      'leader_id',
+      'ownerId',
+    ]);
+    if (leaderId.isNotEmpty && leaderId == _currentUserId) {
+      return 'Leader';
+    }
+    return 'Member';
+  }
+
+  bool get _isLeader =>
+      const ['leader', 'owner', 'admin'].contains(_role.toLowerCase());
+
+  String _taskId(Map<String, dynamic> task) =>
+      _stringValue(task, const ['id', '_id', 'taskId', 'task_id']);
+
+  String _status(Map<String, dynamic> task) => _normalizeStatus(
+    _stringValue(task, const [
+      'status',
+      'taskStatus',
+      'task_status',
+    ], fallback: 'Cần làm'),
+  );
+
+  String _normalizeStatus(String value) {
+    switch (value
+        .toLowerCase()
+        .replaceAll('_', ' ')
+        .replaceAll('-', ' ')
+        .trim()) {
+      case 'todo':
+      case 'to do':
+      case 'pending':
+      case 'cần làm':
+        return 'Cần làm';
+      case 'in progress':
+      case 'doing':
+      case 'đang làm':
+        return 'Đang làm';
+      case 'submitted':
+      case 'waiting review':
+      case 'pending review':
+      case 'chờ duyệt':
+        return 'Chờ duyệt';
+      case 'revision':
+      case 'needs changes':
+      case 'cần sửa':
+        return 'Cần sửa';
+      case 'done':
+      case 'completed':
+      case 'hoàn thành':
+        return 'Hoàn thành';
+      default:
+        return value.isEmpty ? 'Cần làm' : value;
+    }
+  }
+
+  String _assigneeId(Map<String, dynamic> task) => _stringValue(task, const [
+    'assigneeId',
+    'assignee_id',
+    'assignedTo',
+    'userId',
+    'user_id',
+  ]);
+
+  String _currentUserIdFromProject() {
+    final supplied = widget.currentUserId?.trim() ?? '';
+    if (supplied.isNotEmpty) {
+      return supplied;
+    }
+    return _stringValue(_project ?? {}, const [
+      'currentUserId',
+      'meId',
+      'userId',
+    ]);
+  }
+
+  String _memberName(dynamic memberOrId) {
+    if (memberOrId is Map) {
+      final member = _asMap(memberOrId) ?? {};
+      return _stringValue(member, const [
+        'name',
+        'fullName',
+        'full_name',
+        'username',
+        'email',
+      ], fallback: 'Thành viên');
+    }
+    final id = memberOrId?.toString() ?? '';
+    final found = _members.where(
+      (m) => _stringValue(m, const ['id', '_id', 'userId', 'user_id']) == id,
+    );
+    if (found.isNotEmpty) {
+      return _memberName(found.first);
+    }
+    return id.isEmpty ? 'Chưa phân công' : 'Thành viên $id';
+  }
+
+  String _leaderId() => _stringValue(_project ?? {}, const [
+    'leaderId',
+    'leader_id',
+    'ownerId',
+    'owner_id',
+  ]);
+
+  bool _isMyTask(Map<String, dynamic> task) {
+    final userId = _currentUserIdFromProject();
+    return userId.isNotEmpty && _assigneeId(task) == userId;
+  }
+
+  int _countStatus(String status) =>
+      _tasks.where((task) => _status(task) == status).length;
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'Hoàn thành':
+        return AppColors.green;
+      case 'Đang làm':
+        return const Color(0xFF4285F4);
+      case 'Chờ duyệt':
+        return const Color(0xFFDB9B18);
+      case 'Cần sửa':
+        return AppColors.pink;
+      default:
+        return AppColors.textSecondary;
+    }
+  }
+
+  Color _projectColor(Map<String, dynamic> project) {
+    final raw = _firstValue(project, const ['color', 'colorValue']);
+    if (raw is int) {
+      return Color(raw);
+    }
+    switch (_stringValue(project, const ['tag', 'category']).toLowerCase()) {
+      case 'mobile':
+        return AppColors.green;
+      case 'marketing':
+        return AppColors.pink;
+      case 'research':
+        return const Color(0xFFE1B32C);
+      default:
+        return AppColors.darkPurple;
+    }
   }
 
   String _formatDate(String? value) {
     if (value == null || value.isEmpty) {
       return 'Chưa có hạn';
     }
-
     final date = DateTime.tryParse(value);
-    if (date == null) return 'Chưa có hạn';
-
+    if (date == null) {
+      return 'Chưa có hạn';
+    }
     return '${date.day.toString().padLeft(2, '0')}/'
         '${date.month.toString().padLeft(2, '0')}/'
         '${date.year}';
   }
 
-  Color _statusColor(String status) {
-    switch (status) {
-      case 'Hoàn thành':
-        return teamUpGreen;
-      case 'Đang làm':
-        return const Color(0xFF4285F4);
-      case 'Chờ duyệt':
-        return const Color(0xFFDB9B18);
-      case 'Cần sửa':
-        return teamUpPink;
-      default:
-        return _textSecondary;
+  void _message(String message) {
+    if (!mounted) {
+      return;
     }
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Color _projectColor(Map<String, dynamic> project) {
-    final value = project['color'];
-
-    if (value is Color) return value;
-    if (value is int) return Color(value);
-
-    switch (project['tag']?.toString()) {
-      case 'Mobile':
-        return teamUpGreen;
-      case 'Marketing':
-        return teamUpPink;
-      case 'Research':
-        return const Color(0xFFE1B32C);
-      default:
-        return teamUpPurple;
+  Future<void> _runAction(
+    Future<Map<String, dynamic>> Function() action, {
+    required String successMessage,
+  }) async {
+    if (_busy) {
+      return;
     }
-  }
-
-  void _refresh() {
-    if (mounted) setState(() {});
-  }
-
-  void _showMessage(String message) {
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    setState(() => _busy = true);
+    try {
+      await action();
+      await _loadPage(showLoading: false);
+      if (mounted) {
+        _message(successMessage);
+      }
+    } catch (e) {
+      if (mounted) {
+        _message(e.toString());
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
   }
 
   Future<void> _showCreateTaskDialog() async {
-    if (!_store.canCreateTask(widget.projectId)) {
-      _showMessage('Chỉ Leader của dự án mới được tạo công việc.');
+    if (!_isLeader) {
+      _message('Chỉ Leader của dự án mới được tạo công việc.');
       return;
     }
-
-    final formKey = GlobalKey<FormState>();
     final titleController = TextEditingController();
-    final outputRequired = ValueNotifier<bool>(true);
-
+    final descriptionController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
     String? assigneeId;
-    String outputType = 'docs';
-    String priority = 'Trung bình';
+    String priority = 'medium';
     DateTime? dueDate;
+    String outputType = 'docs';
+    bool outputRequired = true;
 
-    final project = _project;
-    if (project == null) {
-      _showMessage('Không tìm thấy dự án.');
-      titleController.dispose();
-      outputRequired.dispose();
-      return;
-    }
-
-    final members = (project['members'] as List<dynamic>? ?? [])
-        .map((id) => id.toString())
-        .toList();
-
-    if (members.isNotEmpty) {
-      assigneeId = members.first;
-    }
-
-    final result = await showDialog<bool>(
+    final result = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Tạo công việc'),
-              content: SizedBox(
-                width: 420,
-                child: SingleChildScrollView(
-                  child: Form(
-                    key: formKey,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        TextFormField(
-                          controller: titleController,
-                          decoration: const InputDecoration(
-                            labelText: 'Tên công việc',
-                            hintText: 'Nhập tên công việc',
-                            border: OutlineInputBorder(),
-                          ),
-                          validator: (value) {
-                            if (value == null ||
-                                value.trim().isEmpty) {
-                              return 'Vui lòng nhập tên công việc';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        DropdownButtonFormField<String>(
-                          initialValue: assigneeId,
-                          isExpanded: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Người thực hiện',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: members.map((id) {
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Tạo công việc'),
+          content: SizedBox(
+            width: 440,
+            child: SingleChildScrollView(
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      controller: titleController,
+                      decoration: const InputDecoration(
+                        labelText: 'Tên công việc *',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (value) =>
+                          value == null || value.trim().isEmpty
+                          ? 'Vui lòng nhập tên công việc'
+                          : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: descriptionController,
+                      minLines: 2,
+                      maxLines: 4,
+                      decoration: const InputDecoration(
+                        labelText: 'Mô tả',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: assigneeId,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Người thực hiện',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: _members
+                          .map((member) {
+                            final id = _stringValue(member, const [
+                              'id',
+                              '_id',
+                              'userId',
+                              'user_id',
+                            ]);
                             return DropdownMenuItem(
                               value: id,
-                              child: Text(_store.memberName(id)),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setDialogState(() {
-                              assigneeId = value;
-                            });
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        DropdownButtonFormField<String>(
-                          initialValue: priority,
-                          decoration: const InputDecoration(
-                            labelText: 'Mức độ ưu tiên',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'Thấp',
-                              child: Text('Thấp'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'Trung bình',
-                              child: Text('Trung bình'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'Cao',
-                              child: Text('Cao'),
-                            ),
-                          ],
-                          onChanged: (value) {
-                            if (value != null) {
-                              setDialogState(() {
-                                priority = value;
-                              });
-                            }
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        DropdownButtonFormField<String>(
-                          initialValue: outputType,
-                          decoration: const InputDecoration(
-                            labelText: 'Loại đầu ra',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'docs',
-                              child: Text('Google Docs / Tài liệu'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'drive',
-                              child: Text('Google Drive'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'sheet',
-                              child: Text('Google Sheets / Bảng tính'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'files',
-                              child: Text('Tệp đính kèm'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'none',
-                              child: Text('Không yêu cầu đầu ra'),
-                            ),
-                          ],
-                          onChanged: (value) {
-                            if (value != null) {
-                              setDialogState(() {
-                                outputType = value;
-                                if (value == 'none') {
-                                  outputRequired.value = false;
-                                }
-                              });
-                            }
-                          },
-                        ),
-                        const SizedBox(height: 4),
-                        ValueListenableBuilder<bool>(
-                          valueListenable: outputRequired,
-                          builder: (context, required, child) {
-                            return CheckboxListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: const Text(
-                                'Bắt buộc nộp đường dẫn hoặc kết quả',
+                              child: Text(
+                                _memberName(member),
+                                overflow: TextOverflow.ellipsis,
                               ),
-                              value: outputType == 'none'
-                                  ? false
-                                  : required,
-                              onChanged: outputType == 'none'
-                                  ? null
-                                  : (value) {
-                                      outputRequired.value =
-                                          value ?? true;
-                                    },
-                              controlAffinity:
-                                  ListTileControlAffinity.leading,
                             );
-                          },
+                          })
+                          .where((item) => item.value?.isNotEmpty == true)
+                          .toList(),
+                      onChanged: (value) =>
+                          setDialogState(() => assigneeId = value),
+                      validator: (value) => value == null
+                          ? 'Vui lòng chọn người thực hiện'
+                          : null,
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: priority,
+                      decoration: const InputDecoration(
+                        labelText: 'Mức độ ưu tiên',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'low', child: Text('Thấp')),
+                        DropdownMenuItem(
+                          value: 'medium',
+                          child: Text('Trung bình'),
                         ),
-                        const SizedBox(height: 8),
-                        OutlinedButton.icon(
-                          onPressed: () async {
-                            final picked = await showDatePicker(
-                              context: context,
-                              initialDate: dueDate ?? DateTime.now(),
-                              firstDate: DateTime(2020),
-                              lastDate: DateTime(2100),
-                            );
-
-                            if (picked != null) {
-                              setDialogState(() {
-                                dueDate = picked;
-                              });
-                            }
-                          },
-                          icon: const Icon(
-                            Icons.calendar_month_outlined,
-                          ),
-                          label: Text(
-                            dueDate == null
-                                ? 'Chọn hạn hoàn thành'
-                                : 'Hạn: ${_formatDate(dueDate!.toIso8601String())}',
-                          ),
+                        DropdownMenuItem(value: 'high', child: Text('Cao')),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setDialogState(() => priority = value);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: outputType,
+                      decoration: const InputDecoration(
+                        labelText: 'Loại đầu ra',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'docs',
+                          child: Text('Google Docs / Tài liệu'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'drive',
+                          child: Text('Google Drive'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'sheet',
+                          child: Text('Google Sheets / Bảng tính'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'file',
+                          child: Text('Tệp đính kèm'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'none',
+                          child: Text('Không yêu cầu đầu ra'),
                         ),
                       ],
+                      onChanged: (value) {
+                        if (value == null) {
+                          return;
+                        }
+                        setDialogState(() {
+                          outputType = value;
+                          if (value == 'none') {
+                            outputRequired = false;
+                          }
+                        });
+                      },
                     ),
-                  ),
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Bắt buộc nộp đường dẫn/kết quả'),
+                      value: outputType == 'none' ? false : outputRequired,
+                      onChanged: outputType == 'none'
+                          ? null
+                          : (value) => setDialogState(
+                              () => outputRequired = value ?? true,
+                            ),
+                      controlAffinity: ListTileControlAffinity.leading,
+                    ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final picked = await showDatePicker(
+                            context: context,
+                            initialDate: dueDate ?? DateTime.now(),
+                            firstDate: DateTime.now().subtract(
+                              const Duration(days: 1),
+                            ),
+                            lastDate: DateTime(2100),
+                          );
+                          if (picked != null) {
+                            setDialogState(() => dueDate = picked);
+                          }
+                        },
+                        icon: const Icon(Icons.calendar_month_outlined),
+                        label: Text(
+                          dueDate == null
+                              ? 'Chọn hạn hoàn thành'
+                              : 'Hạn: ${_formatDate(dueDate!.toIso8601String())}',
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () =>
-                      Navigator.pop(dialogContext, false),
-                  child: const Text('Hủy'),
-                ),
-                FilledButton(
-                  onPressed: () {
-                    if (!formKey.currentState!.validate()) return;
-
-                    if (assigneeId == null) {
-                      ScaffoldMessenger.of(dialogContext)
-                          .showSnackBar(
-                        const SnackBar(
-                          content: Text('Vui lòng chọn người thực hiện'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    Navigator.pop(dialogContext, true);
-                  },
-                  child: const Text('Tạo công việc'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    if (result == true) {
-      try {
-        _store.createTask(
-          projectId: widget.projectId,
-          title: titleController.text.trim(),
-          assigneeId: assigneeId!,
-          priority: priority,
-          dueDate: dueDate?.toIso8601String(),
-          outputType: outputType,
-          outputRequired: outputType != 'none' &&
-              outputRequired.value,
-        );
-
-        _refresh();
-        _showMessage('Đã tạo công việc.');
-      } catch (e) {
-        _showMessage(e.toString());
-      }
-    }
-
-    titleController.dispose();
-    outputRequired.dispose();
-  }
-
-  Future<void> _startTask(Map<String, dynamic> task) async {
-    try {
-      _store.startTask(task['id'].toString());
-      _refresh();
-      _showMessage('Đã chuyển sang Đang làm.');
-    } catch (e) {
-      _showMessage(e.toString());
-    }
-  }
-
-  Future<void> _submitTask(Map<String, dynamic> task) async {
-    final outputController = TextEditingController(
-      text: task['outputLink']?.toString() ?? '',
-    );
-
-    final outputType = task['outputType']?.toString() ?? 'none';
-    final outputRequired = task['outputRequired'] == true;
-
-    final result = await showDialog<String?>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Gửi công việc'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(task['title']?.toString() ?? 'Công việc'),
-              const SizedBox(height: 12),
-              if (outputType != 'none')
-                Text(
-                  outputRequired
-                      ? 'Vui lòng nhập đường dẫn kết quả.'
-                      : 'Có thể nhập đường dẫn kết quả nếu có.',
-                  style: const TextStyle(
-                    color: _textSecondary,
-                  ),
-                ),
-              if (outputType != 'none') ...[
-                const SizedBox(height: 8),
-                TextField(
-                  controller: outputController,
-                  decoration: const InputDecoration(
-                    labelText: 'Đường dẫn kết quả',
-                    hintText: 'https://...',
-                    border: OutlineInputBorder(),
-                  ),
-                  minLines: 1,
-                  maxLines: 3,
-                ),
-              ],
-            ],
+            ),
           ),
           actions: [
             TextButton(
-              onPressed: () =>
-                  Navigator.pop(dialogContext),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Hủy'),
             ),
             FilledButton(
               onPressed: () {
-                final link = outputController.text.trim();
-
-                if (outputType != 'none' &&
-                    outputRequired &&
-                    link.isEmpty) {
-                  ScaffoldMessenger.of(dialogContext)
-                      .showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Bạn cần nhập đường dẫn kết quả.',
-                      ),
-                    ),
-                  );
+                if (!formKey.currentState!.validate()) {
                   return;
                 }
-
-                Navigator.pop(dialogContext, link);
+                Navigator.pop(dialogContext, {
+                  'title': titleController.text.trim(),
+                  'description': descriptionController.text.trim(),
+                  'assigneeId': assigneeId,
+                  'priority': priority,
+                  'dueDate': dueDate?.toIso8601String(),
+                  'outputType': outputType,
+                  'outputRequired': outputType != 'none' && outputRequired,
+                });
               },
-              child: const Text('Gửi'),
+              child: const Text('Tạo công việc'),
             ),
           ],
-        );
-      },
+        ),
+      ),
     );
+    titleController.dispose();
+    descriptionController.dispose();
 
-    outputController.dispose();
-
-    if (result == null) return;
-
-    try {
-      _store.submitTask(
-        task['id'].toString(),
-        outputLink: result,
-      );
-
-      _refresh();
-      _showMessage(
-        _isLeader
-            ? 'Đã hoàn thành công việc.'
-            : 'Đã gửi công việc để Leader duyệt.',
-      );
-    } catch (e) {
-      _showMessage(e.toString());
+    if (result == null || !mounted) {
+      return;
     }
+    await _runAction(
+      () => _api.request('POST', _tasksPath, body: result, protected: true),
+      successMessage: 'Đã tạo công việc.',
+    );
+  }
+
+  Future<void> _startTask(Map<String, dynamic> task) async {
+    final id = _taskId(task);
+    if (id.isEmpty) {
+      _message('Task không có ID hợp lệ.');
+      return;
+    }
+    await _runAction(
+      () => _api.request(
+        'PATCH',
+        '/tasks/${Uri.encodeComponent(id)}/start',
+        body: const {},
+        protected: true,
+      ),
+      successMessage: 'Đã chuyển công việc sang Đang làm.',
+    );
+  }
+
+  Future<void> _submitTask(Map<String, dynamic> task) async {
+    final controller = TextEditingController(
+      text: _stringValue(task, const [
+        'outputLink',
+        'output_link',
+        'submissionUrl',
+        'submission_url',
+      ]),
+    );
+    final outputType = _stringValue(task, const [
+      'outputType',
+      'output_type',
+    ], fallback: 'docs');
+    final outputRequired =
+        _firstValue(task, const ['outputRequired', 'output_required']) != false;
+    final formKey = GlobalKey<FormState>();
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Gửi kết quả công việc'),
+        content: SizedBox(
+          width: 440,
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _stringValue(task, const [
+                    'title',
+                    'name',
+                  ], fallback: 'Công việc'),
+                ),
+                const SizedBox(height: 12),
+                if (outputType != 'none')
+                  TextFormField(
+                    controller: controller,
+                    minLines: 1,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Đường dẫn kết quả',
+                      hintText: 'https://docs.google.com/...',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (value) {
+                      final text = value?.trim() ?? '';
+                      if (outputRequired && text.isEmpty) {
+                        return 'Vui lòng nhập đường dẫn kết quả.';
+                      }
+                      if (text.isNotEmpty) {
+                        final uri = Uri.tryParse(text);
+                        if (uri == null ||
+                            !uri.hasAuthority ||
+                            !['http', 'https'].contains(uri.scheme)) {
+                          return 'Vui lòng nhập URL bắt đầu bằng http:// hoặc https://';
+                        }
+                      }
+                      return null;
+                    },
+                  )
+                else
+                  const Text('Công việc này không yêu cầu đường dẫn đầu ra.'),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (outputType != 'none' && !formKey.currentState!.validate()) {
+                return;
+              }
+              Navigator.pop(dialogContext, controller.text.trim());
+            },
+            child: const Text('Gửi'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (result == null || !mounted) {
+      return;
+    }
+
+    final id = _taskId(task);
+    if (id.isEmpty) {
+      _message('Task không có ID hợp lệ.');
+      return;
+    }
+    await _runAction(
+      () => _api.request(
+        'POST',
+        '/tasks/${Uri.encodeComponent(id)}/submit',
+        body: {'outputLink': result},
+        protected: true,
+      ),
+      successMessage: _isLeader
+          ? 'Đã cập nhật kết quả công việc.'
+          : 'Đã gửi công việc để Leader duyệt.',
+    );
   }
 
   Future<void> _reviewTask(
     Map<String, dynamic> task, {
     required bool approve,
   }) async {
-    if (approve) {
-      try {
-        _store.approveTask(task['id'].toString());
-        _refresh();
-        _showMessage('Đã duyệt công việc.');
-      } catch (e) {
-        _showMessage(e.toString());
-      }
-      return;
-    }
-
-    final commentController = TextEditingController(
-      text: task['reviewComment']?.toString() ?? '',
-    );
-
-    final comment = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
+    String? comment;
+    if (!approve) {
+      final controller = TextEditingController();
+      comment = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
           title: const Text('Yêu cầu chỉnh sửa'),
           content: TextField(
-            controller: commentController,
+            controller: controller,
             autofocus: true,
             minLines: 2,
             maxLines: 5,
             decoration: const InputDecoration(
-              labelText: 'Nhận xét cho người thực hiện',
+              labelText: 'Nhận xét',
               hintText: 'Nêu rõ nội dung cần chỉnh sửa',
               border: OutlineInputBorder(),
             ),
           ),
           actions: [
             TextButton(
-              onPressed: () =>
-                  Navigator.pop(dialogContext),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Hủy'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(
-                dialogContext,
-                commentController.text.trim(),
-              ),
+              onPressed: () =>
+                  Navigator.pop(dialogContext, controller.text.trim()),
               child: const Text('Gửi yêu cầu'),
             ),
           ],
-        );
-      },
-    );
-
-    commentController.dispose();
-
-    if (comment == null) return;
-
-    try {
-      _store.requestTaskChanges(
-        task['id'].toString(),
-        comment: comment,
+        ),
       );
-      _refresh();
-      _showMessage('Đã gửi yêu cầu chỉnh sửa.');
-    } catch (e) {
-      _showMessage(e.toString());
+      controller.dispose();
+      if (comment == null || !mounted) {
+        return;
+      }
+    }
+
+    final id = _taskId(task);
+    if (id.isEmpty) {
+      _message('Task không có ID hợp lệ.');
+      return;
+    }
+    await _runAction(
+      () => _api.request(
+        'POST',
+        '/tasks/${Uri.encodeComponent(id)}/${approve ? 'approve' : 'request-changes'}',
+        body: approve ? const {} : {'comment': comment},
+        protected: true,
+      ),
+      successMessage: approve
+          ? 'Đã duyệt công việc.'
+          : 'Đã gửi yêu cầu chỉnh sửa.',
+    );
+  }
+
+  Future<void> _openLink(String rawLink) async {
+    final uri = Uri.tryParse(rawLink.trim());
+    if (uri == null ||
+        !uri.hasAuthority ||
+        !['http', 'https'].contains(uri.scheme)) {
+      _message('Đường dẫn không hợp lệ.');
+      return;
+    }
+    try {
+      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened && mounted) {
+        _message('Không thể mở đường dẫn này.');
+      }
+    } catch (_) {
+      if (mounted) {
+        _message('Đã xảy ra lỗi khi mở đường dẫn.');
+      }
     }
   }
 
-  Widget _buildOverview(Map<String, dynamic> project) {
-    final color = _projectColor(project);
-
-    return ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 58,
-                height: 58,
-                decoration: BoxDecoration(
-                  color: color,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(
-                  Icons.folder_open_rounded,
-                  color: Colors.white,
-                  size: 30,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      project['name']?.toString() ??
-                          'Dự án',
-                      style: const TextStyle(
-                        fontSize: 19,
-                        fontWeight: FontWeight.w800,
-                        color: _textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Vai trò của bạn: $_role',
-                      style: TextStyle(
-                        color: color,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 24),
-        const Text(
-          'Tiến độ công việc',
-          style: TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.w800,
-            color: _textPrimary,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            _buildStatCard(
-              'Cần làm',
-              _countStatus('Cần làm'),
-              _textSecondary,
-            ),
-            const SizedBox(width: 10),
-            _buildStatCard(
-              'Đang làm',
-              _countStatus('Đang làm'),
-              const Color(0xFF4285F4),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            _buildStatCard(
-              'Chờ duyệt',
-              _countStatus('Chờ duyệt'),
-              const Color(0xFFDB9B18),
-            ),
-            const SizedBox(width: 10),
-            _buildStatCard(
-              'Hoàn thành',
-              _countStatus('Hoàn thành'),
-              teamUpGreen,
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-        Row(
-          children: [
-            const Expanded(
-              child: Text(
-                'Thành viên dự án',
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                  color: _textPrimary,
-                ),
-              ),
-            ),
-            Text(
-              '${(project['members'] as List<dynamic>? ?? []).length} người',
-              style: const TextStyle(
-                color: _textSecondary,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        ...(project['members'] as List<dynamic>? ?? [])
-            .map((id) {
-          final memberId = id.toString();
-          return ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: CircleAvatar(
-              backgroundColor: color.withValues(alpha: 0.13),
-              child: Text(
-                _store.memberInitials(memberId),
-                style: TextStyle(
-                  color: color,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-            title: Text(
-              _store.memberName(memberId),
-              style: const TextStyle(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            trailing: memberId ==
-                    project['leaderId']?.toString()
-                ? Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: teamUpPurple.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Text(
-                      'Leader',
-                      style: TextStyle(
-                        color: teamUpDarkPurple,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12,
-                      ),
-                    ),
-                  )
-                : const Text(
-                    'Member',
-                    style: TextStyle(
-                      color: _textSecondary,
-                      fontSize: 12,
-                    ),
-                  ),
-          );
-        }),
-      ],
-    );
-  }
-
-  Widget _buildStatCard(
-    String label,
-    int count,
-    Color color,
-  ) {
+  Widget _statCard(String label, int count, Color color) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(15),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: const Color(0xFFECEBF2),
-          ),
+          border: Border.all(color: const Color(0xFFECEBF2)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -761,7 +832,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
             Text(
               '$count',
               style: TextStyle(
-                fontSize: 26,
+                fontSize: 25,
                 fontWeight: FontWeight.w800,
                 color: color,
               ),
@@ -769,10 +840,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
             const SizedBox(height: 5),
             Text(
               label,
-              style: const TextStyle(
-                color: _textSecondary,
-                fontSize: 12,
-              ),
+              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
             ),
           ],
         ),
@@ -780,66 +848,248 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
     );
   }
 
-  Widget _buildTasks() {
-    final tasks = _projectTasks;
+  Widget _buildOverview(Map<String, dynamic> project) {
+    final color = _projectColor(project);
+    final projectName = _stringValue(project, const [
+      'name',
+      'title',
+      'projectName',
+    ], fallback: 'Dự án');
+    final leaderId = _leaderId();
 
-    if (tasks.isEmpty) {
-      return const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.task_alt_rounded,
-              size: 52,
-              color: Color(0xFFD0CEDC),
+    return RefreshIndicator(
+      onRefresh: _loadPage,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(20),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(20),
             ),
+            child: Row(
+              children: [
+                Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(
+                    Icons.folder_open_rounded,
+                    color: Colors.white,
+                    size: 30,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        projectName,
+                        style: const TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Vai trò của bạn: $_role',
+                        style: TextStyle(
+                          color: color,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (_stringValue(project, const [
+                        'description',
+                      ]).isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          _stringValue(project, const ['description']),
+                          style: const TextStyle(color: AppColors.textSecondary),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'Tiến độ công việc',
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _statCard('Cần làm', _countStatus('Cần làm'), AppColors.textSecondary),
+              const SizedBox(width: 10),
+              _statCard(
+                'Đang làm',
+                _countStatus('Đang làm'),
+                const Color(0xFF4285F4),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _statCard(
+                'Chờ duyệt',
+                _countStatus('Chờ duyệt'),
+                const Color(0xFFDB9B18),
+              ),
+              const SizedBox(width: 10),
+              _statCard('Hoàn thành', _countStatus('Hoàn thành'), AppColors.green),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Thành viên dự án',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+              Text(
+                '${_members.length} người',
+                style: const TextStyle(color: AppColors.textSecondary),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (_members.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Text(
+                'API chưa trả về danh sách thành viên.',
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+            )
+          else
+            ..._members.map((member) {
+              final id = _stringValue(member, const [
+                'id',
+                '_id',
+                'userId',
+                'user_id',
+              ]);
+              final name = _memberName(member);
+              final isLeader = id.isNotEmpty && id == leaderId;
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: CircleAvatar(
+                  backgroundColor: color.withValues(alpha: 0.13),
+                  child: Text(
+                    name.trim().isEmpty
+                        ? '?'
+                        : name.trim().substring(0, 1).toUpperCase(),
+                    style: TextStyle(color: color, fontWeight: FontWeight.w800),
+                  ),
+                ),
+                title: Text(
+                  name,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: id.isEmpty
+                    ? null
+                    : Text(id, style: const TextStyle(fontSize: 11)),
+                trailing: Text(
+                  isLeader ? 'Leader' : 'Member',
+                  style: TextStyle(
+                    color: isLeader ? AppColors.darkPurple : AppColors.textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTasks() {
+    if (_tasks.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _loadPage,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(height: 120),
+            Icon(Icons.task_alt_rounded, size: 52, color: Color(0xFFD0CEDC)),
             SizedBox(height: 12),
-            Text(
-              'Chưa có công việc nào',
-              style: TextStyle(
-                color: _textSecondary,
+            Center(
+              child: Text(
+                'Chưa có công việc nào',
+                style: TextStyle(color: AppColors.textSecondary),
               ),
             ),
           ],
         ),
       );
     }
-
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      itemCount: tasks.length,
-      separatorBuilder: (_, _) =>
-          const SizedBox(height: 10),
-      itemBuilder: (context, index) {
-        return _buildTaskCard(tasks[index]);
-      },
+    return RefreshIndicator(
+      onRefresh: _loadPage,
+      child: ListView.separated(
+        padding: const EdgeInsets.all(16),
+        itemCount: _tasks.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 10),
+        itemBuilder: (context, index) => _buildTaskCard(_tasks[index]),
+      ),
     );
   }
 
   Widget _buildTaskCard(Map<String, dynamic> task) {
-    final title = task['title']?.toString() ?? 'Công việc';
-    final status = task['status']?.toString() ?? 'Cần làm';
-    final assigneeId =
-        task['assigneeId']?.toString() ?? '';
+    final title = _stringValue(task, const [
+      'title',
+      'name',
+    ], fallback: 'Công việc');
+    final status = _status(task);
+    final assigneeId = _assigneeId(task);
     final color = _statusColor(status);
-    final taskId = task['id']?.toString() ?? '';
-    final isMyTask = assigneeId == 'user_linh';
-    final isWaiting = status == 'Chờ duyệt';
-
-    final canStart = isMyTask && status == 'Cần làm';
-    final canSubmit =
-        isMyTask &&
-        (status == 'Đang làm' || status == 'Cần sửa');
-    final canReview = _isLeader && isWaiting;
+    final outputLink = _stringValue(task, const [
+      'outputLink',
+      'output_link',
+      'submissionUrl',
+      'submission_url',
+    ]);
+    final comment = _stringValue(task, const [
+      'reviewComment',
+      'review_comment',
+      'feedback',
+    ]);
+    final dueDate = _stringValue(task, const [
+      'dueDate',
+      'due_date',
+      'deadline',
+    ]);
+    final mine = _isMyTask(task);
+    final canStart = mine && status == 'Cần làm';
+    final canSubmit = mine && (status == 'Đang làm' || status == 'Cần sửa');
+    final canReview = _isLeader && status == 'Chờ duyệt';
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: const Color(0xFFECEBF2),
-        ),
+        border: Border.all(color: const Color(0xFFECEBF2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -853,16 +1103,13 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
-                    color: _textPrimary,
+                    color: AppColors.textPrimary,
                   ),
                 ),
               ),
               const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 9,
-                  vertical: 5,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                 decoration: BoxDecoration(
                   color: color.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(20),
@@ -878,79 +1125,81 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
               ),
             ],
           ),
+          if (_stringValue(task, const ['description']).isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              _stringValue(task, const ['description']),
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+          ],
           const SizedBox(height: 12),
           Row(
             children: [
               const Icon(
                 Icons.person_outline_rounded,
                 size: 17,
-                color: _textSecondary,
+                color: AppColors.textSecondary,
               ),
               const SizedBox(width: 5),
               Expanded(
                 child: Text(
-                  _store.memberName(assigneeId),
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: _textSecondary,
-                  ),
+                  _memberName(assigneeId),
+                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
                 ),
               ),
               const Icon(
                 Icons.calendar_today_outlined,
                 size: 14,
-                color: _textSecondary,
+                color: AppColors.textSecondary,
               ),
               const SizedBox(width: 5),
               Text(
-                _formatDate(task['dueDate']?.toString()),
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: _textSecondary,
-                ),
+                _formatDate(dueDate),
+                style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
               ),
             ],
           ),
-          if (task['reviewComment'] != null &&
-              task['reviewComment'].toString().trim().isNotEmpty) ...[
+          if (comment.isNotEmpty) ...[
             const SizedBox(height: 12),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: teamUpPink.withValues(alpha: 0.08),
+                color: AppColors.pink.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Text(
-                'Nhận xét: ${task['reviewComment']}',
-                style: const TextStyle(
-                  color: Color(0xFFB94B83),
-                  fontSize: 12,
-                ),
+                'Nhận xét: $comment',
+                style: const TextStyle(color: Color(0xFFB94B83), fontSize: 12),
               ),
             ),
           ],
-          if (task['outputLink'] != null &&
-              task['outputLink'].toString().trim().isNotEmpty) ...[
+          if (outputLink.isNotEmpty) ...[
             const SizedBox(height: 10),
             Row(
               children: [
-                const Icon(
-                  Icons.link_rounded,
-                  size: 17,
-                  color: teamUpPurple,
-                ),
+                const Icon(Icons.link_rounded, size: 17, color: AppColors.purple),
                 const SizedBox(width: 6),
                 Expanded(
-                  child: Text(
-                    task['outputLink'].toString(),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: teamUpDarkPurple,
-                      fontSize: 12,
+                  child: InkWell(
+                    onTap: () => _openLink(outputLink),
+                    child: Text(
+                      outputLink,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.darkPurple,
+                        fontSize: 12,
+                        decoration: TextDecoration.underline,
+                      ),
                     ),
                   ),
+                ),
+                IconButton(
+                  tooltip: 'Mở link',
+                  onPressed: () => _openLink(outputLink),
+                  icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                  color: AppColors.darkPurple,
                 ),
               ],
             ),
@@ -965,53 +1214,36 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
               children: [
                 if (canStart)
                   OutlinedButton.icon(
-                    onPressed: () => _startTask(task),
-                    icon: const Icon(
-                      Icons.play_arrow_rounded,
-                      size: 18,
-                    ),
+                    onPressed: _busy ? null : () => _startTask(task),
+                    icon: const Icon(Icons.play_arrow_rounded, size: 18),
                     label: const Text('Bắt đầu'),
                   ),
                 if (canSubmit)
                   FilledButton.icon(
-                    onPressed: () => _submitTask(task),
-                    icon: const Icon(
-                      Icons.send_rounded,
-                      size: 16,
-                    ),
+                    onPressed: _busy ? null : () => _submitTask(task),
+                    icon: const Icon(Icons.send_rounded, size: 16),
                     label: const Text('Gửi kết quả'),
                   ),
                 if (canReview) ...[
                   FilledButton.icon(
-                    onPressed: () => _reviewTask(
-                      task,
-                      approve: true,
-                    ),
-                    icon: const Icon(
-                      Icons.check_rounded,
-                      size: 17,
-                    ),
+                    onPressed: _busy
+                        ? null
+                        : () => _reviewTask(task, approve: true),
+                    icon: const Icon(Icons.check_rounded, size: 17),
                     label: const Text('Duyệt'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: teamUpGreen,
-                    ),
+                    style: FilledButton.styleFrom(backgroundColor: AppColors.green),
                   ),
                   OutlinedButton.icon(
-                    onPressed: () => _reviewTask(
-                      task,
-                      approve: false,
-                    ),
-                    icon: const Icon(
-                      Icons.edit_note_rounded,
-                      size: 17,
-                    ),
+                    onPressed: _busy
+                        ? null
+                        : () => _reviewTask(task, approve: false),
+                    icon: const Icon(Icons.edit_note_rounded, size: 17),
                     label: const Text('Yêu cầu sửa'),
                   ),
                 ],
               ],
             ),
           ],
-          if (taskId.isNotEmpty) const SizedBox(height: 0),
         ],
       ),
     );
@@ -1020,46 +1252,55 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
   @override
   Widget build(BuildContext context) {
     final project = _project;
-
-    if (project == null) {
-      return Scaffold(
-        backgroundColor: _background,
-        appBar: AppBar(
-          title: const Text('Chi tiết dự án'),
-        ),
-        body: const Center(
-          child: Text('Không tìm thấy dự án.'),
-        ),
-      );
-    }
-
-    final color = _projectColor(project);
+    final projectName = project == null
+        ? 'Chi tiết dự án'
+        : _stringValue(project, const [
+            'name',
+            'title',
+            'projectName',
+          ], fallback: 'Chi tiết dự án');
+    final color = project == null ? AppColors.darkPurple : _projectColor(project);
 
     return Scaffold(
-      backgroundColor: _background,
+      backgroundColor: AppColors.pageBackground,
       appBar: AppBar(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(
-            Icons.arrow_back_rounded,
-            color: _textPrimary,
-          ),
-          onPressed: () => Navigator.pop(context),
+          icon: const Icon(Icons.arrow_back_rounded, color: AppColors.textPrimary),
+          onPressed: () => Navigator.maybePop(context),
         ),
         title: Text(
-          project['name']?.toString() ?? 'Chi tiết dự án',
+          projectName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
-            color: _textPrimary,
+            color: AppColors.textPrimary,
             fontWeight: FontWeight.w800,
             fontSize: 18,
           ),
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Tải lại',
+            onPressed: _loading ? null : _loadPage,
+            icon: const Icon(Icons.refresh_rounded, color: AppColors.textPrimary),
+          ),
+          if (_isLeader)
+            IconButton(
+              tooltip: 'Tạo công việc',
+              onPressed: _busy ? null : _showCreateTaskDialog,
+              icon: const Icon(
+                Icons.add_circle_outline_rounded,
+                color: AppColors.darkPurple,
+              ),
+            ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           labelColor: color,
-          unselectedLabelColor: _textSecondary,
+          unselectedLabelColor: AppColors.textSecondary,
           indicatorColor: color,
           indicatorWeight: 3,
           tabs: const [
@@ -1067,35 +1308,76 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
             Tab(text: 'Công việc'),
           ],
         ),
-        actions: [
-          if (_store.canCreateTask(widget.projectId))
-            IconButton(
-              tooltip: 'Tạo công việc',
-              onPressed: _showCreateTaskDialog,
-              icon: Icon(
-                Icons.add_circle_outline_rounded,
-                color: color,
+      ),
+      body: _loading
+          ? const Center(
+              child: CircularProgressIndicator(color: AppColors.darkPurple),
+            )
+          : _error != null
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.cloud_off_rounded,
+                      size: 48,
+                      color: AppColors.textSecondary,
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Không thể tải dữ liệu dự án',
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _error!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: _loadPage,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Thử lại'),
+                    ),
+                  ],
+                ),
               ),
+            )
+          : project == null
+          ? const Center(child: Text('API không trả về thông tin dự án.'))
+          : Stack(
+              children: [
+                TabBarView(
+                  controller: _tabController,
+                  children: [_buildOverview(project), _buildTasks()],
+                ),
+                if (_busy)
+                  const Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: LinearProgressIndicator(
+                      minHeight: 2,
+                      color: AppColors.darkPurple,
+                    ),
+                  ),
+              ],
             ),
-        ],
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildOverview(project),
-          _buildTasks(),
-        ],
-      ),
-      floatingActionButton:
-          _store.canCreateTask(widget.projectId)
-              ? FloatingActionButton.extended(
-                  onPressed: _showCreateTaskDialog,
-                  backgroundColor: color,
-                  foregroundColor: Colors.white,
-                  icon: const Icon(Icons.add_rounded),
-                  label: const Text('Tạo công việc'),
-                )
-              : null,
+      floatingActionButton: !_loading && _error == null && _isLeader
+          ? FloatingActionButton.extended(
+              onPressed: _busy ? null : _showCreateTaskDialog,
+              backgroundColor: AppColors.darkPurple,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Tạo công việc'),
+            )
+          : null,
     );
   }
 }

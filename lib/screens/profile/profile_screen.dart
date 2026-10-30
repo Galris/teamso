@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../../controllers/session_controller.dart';
+import '../../core/theme/app_colors.dart';
 import '../../models/user_profile.dart';
-import '../../widgets/auth_widgets.dart';
+import '../../widgets/app_frame.dart';
+import '../../widgets/user_avatar.dart';
 import '../auth/change_password_screen.dart';
 import 'edit_profile_screen.dart';
 
-const _muted = Color(0xFF777C72);
-const _border = Color(0xFFE8E7DE);
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key, required this.session});
@@ -32,7 +32,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Đăng xuất?'),
         content: const Text(
-          'Firebase sẽ kết thúc phiên đăng nhập trên tất cả thiết bị. Bạn có muốn tiếp tục?',
+          'Phiên đăng nhập sẽ được kết thúc trên thiết bị này. Bạn có muốn tiếp tục?',
         ),
         actions: [
           TextButton(
@@ -71,7 +71,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     final user = widget.session.user;
     if (user == null) return const SizedBox.shrink();
-    return Frame(
+    return AppFrame(
       child: SingleChildScrollView(
         key: const PageStorageKey('profile-scroll'),
         padding: const EdgeInsets.only(bottom: 28),
@@ -96,7 +96,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         Icon(
                           Icons.info_outline_rounded,
                           size: 15,
-                          color: _muted,
+                          color: AppColors.textSecondary,
                         ),
                         SizedBox(width: 6),
                         Expanded(
@@ -104,7 +104,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             'Dự án minh họa · Chưa có dữ liệu từ hệ thống.',
                             style: TextStyle(
                               fontSize: 11,
-                              color: _muted,
+                              color: AppColors.textSecondary,
                               height: 1.5,
                             ),
                           ),
@@ -119,12 +119,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         padding: EdgeInsets.all(20),
                         child: Row(
                           children: [
-                            Icon(Icons.folder_open_rounded, color: olive),
+                            Icon(Icons.folder_open_rounded, color: AppColors.darkPurple),
                             SizedBox(width: 12),
                             Expanded(
                               child: Text(
                                 'Bạn chưa tham gia dự án nào.',
-                                style: TextStyle(color: _muted, height: 1.5),
+                                style: TextStyle(color: AppColors.textSecondary, height: 1.5),
                               ),
                             ),
                           ],
@@ -183,7 +183,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const SizedBox(height: 16),
                   _Surface(
-                    color: const Color(0xFFF0F1E5),
+                    color: const Color(0xFFEFECF7),
                     child: Padding(
                       padding: const EdgeInsets.all(18),
                       child: Column(
@@ -194,7 +194,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               Icon(
                                 Icons.format_quote_rounded,
                                 size: 20,
-                                color: olive,
+                                color: AppColors.darkPurple,
                               ),
                               SizedBox(width: 8),
                               Text(
@@ -202,7 +202,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 style: TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w600,
-                                  color: olive,
+                                  color: AppColors.darkPurple,
                                 ),
                               ),
                             ],
@@ -213,7 +213,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 ? 'Thêm một vài dòng để mọi người hiểu bạn hơn.'
                                 : user.bio,
                             style: const TextStyle(
-                              color: ink,
+                              color: AppColors.textPrimary,
                               height: 1.65,
                               fontSize: 13,
                             ),
@@ -238,7 +238,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           height: 1,
                           indent: 18,
                           endIndent: 18,
-                          color: _border,
+                          color: AppColors.border,
                         ),
                         _ActionTile(
                           icon: Icons.lock_outline_rounded,
@@ -277,7 +277,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       style: TextStyle(
                         fontSize: 9,
                         letterSpacing: 1.8,
-                        color: _muted,
+                        color: AppColors.textSecondary,
                       ),
                     ),
                   ),
@@ -299,7 +299,7 @@ class _ProfileHeader extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     decoration: const BoxDecoration(
       gradient: LinearGradient(
-        colors: [Color(0xFFE7EAD7), Color(0xFFF7EEDF)],
+        colors: [Color(0xFFEFECF7), Color(0xFFF8F7FA)],
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
       ),
@@ -317,12 +317,12 @@ class _ProfileHeader extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.w600,
-                  color: ink,
+                  color: AppColors.textPrimary,
                 ),
               ),
             ),
             SizedBox(width: 12),
-            Icon(Icons.spa_outlined, color: olive, size: 23),
+            Icon(Icons.spa_outlined, color: AppColors.darkPurple, size: 23),
           ],
         ),
         const SizedBox(height: 28),
@@ -338,15 +338,15 @@ class _ProfileHeader extends StatelessWidget {
                   width: 2,
                 ),
               ),
-              child: Avatar(large: true, url: user.avatarUrl),
+              child: UserAvatar(large: true, url: user.avatarUrl),
             ),
             Positioned(
               bottom: 0,
               right: 0,
               child: Material(
-                color: olive,
+                color: AppColors.darkPurple,
                 shape: const CircleBorder(
-                  side: BorderSide(color: Color(0xFFFAF8F0), width: 3),
+                  side: BorderSide(color: Color(0xFFFFFFFF), width: 3),
                 ),
                 child: IconButton(
                   tooltip: 'Chỉnh sửa ảnh đại diện',
@@ -374,20 +374,20 @@ class _ProfileHeader extends StatelessWidget {
             fontSize: 27,
             height: 1.2,
             fontWeight: FontWeight.w800,
-            color: ink,
+            color: AppColors.textPrimary,
           ),
         ),
         const SizedBox(height: 12),
         _Tag(
           user.major.isEmpty ? 'Chưa thêm chuyên môn' : user.major,
-          color: const Color(0xFFE2E7CF),
-          textColor: const Color(0xFF56633F),
+          color: const Color(0xFFEFECF7),
+          textColor: const Color(0xFF4D4379),
         ),
         const SizedBox(height: 13),
         const Text(
           'Mỗi đóng góp nhỏ, cùng tạo điều lớn.',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 12, color: _muted, height: 1.5),
+          style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.5),
         ),
       ],
     ),
@@ -422,12 +422,12 @@ class _ProjectCard extends StatelessWidget {
               decoration: BoxDecoration(
                 color: completed
                     ? const Color(0xFFECE7F3)
-                    : const Color(0xFFE8ECD9),
+                    : const Color(0xFFEFECF7),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
                 Icons.folder_outlined,
-                color: completed ? const Color(0xFF807098) : olive,
+                color: completed ? const Color(0xFF867CB3) : AppColors.darkPurple,
                 size: 21,
               ),
             ),
@@ -440,7 +440,7 @@ class _ProjectCard extends StatelessWidget {
                     project.name,
                     style: const TextStyle(
                       fontWeight: FontWeight.w700,
-                      color: ink,
+                      color: AppColors.textPrimary,
                       height: 1.45,
                       fontSize: 14,
                     ),
@@ -458,9 +458,9 @@ class _ProjectCard extends StatelessWidget {
                       _Tag(
                         label,
                         color: completed
-                            ? const Color(0xFFECF0E7)
+                            ? const Color(0xFFE6F2E8)
                             : const Color(0xFFFFF0D5),
-                        textColor: completed ? olive : const Color(0xFF9A7840),
+                        textColor: completed ? AppColors.darkPurple : const Color(0xFF9A7840),
                       ),
                     ],
                   ),
@@ -469,7 +469,7 @@ class _ProjectCard extends StatelessWidget {
                     project.specificTask ?? 'Chưa có mô tả nhiệm vụ cụ thể.',
                     style: const TextStyle(
                       fontSize: 12,
-                      color: _muted,
+                      color: AppColors.textSecondary,
                       height: 1.6,
                     ),
                   ),
@@ -507,7 +507,7 @@ class _Tag extends StatelessWidget {
 }
 
 class _Surface extends StatelessWidget {
-  const _Surface({required this.child, this.color = const Color(0xFFFFFEFA)});
+  const _Surface({required this.child, this.color = const Color(0xFFFFFFFF)});
   final Widget child;
   final Color color;
   @override
@@ -515,7 +515,7 @@ class _Surface extends StatelessWidget {
     color: color,
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(18),
-      side: const BorderSide(color: _border),
+      side: const BorderSide(color: AppColors.border),
     ),
     clipBehavior: Clip.antiAlias,
     child: child,
@@ -535,7 +535,7 @@ class _SectionTitle extends StatelessWidget {
         style: const TextStyle(
           fontSize: 17,
           fontWeight: FontWeight.w700,
-          color: ink,
+          color: AppColors.textPrimary,
         ),
       ),
       if (caption != null)
@@ -543,7 +543,7 @@ class _SectionTitle extends StatelessWidget {
           padding: const EdgeInsets.only(top: 5),
           child: Text(
             caption!,
-            style: const TextStyle(fontSize: 12, color: _muted, height: 1.5),
+            style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.5),
           ),
         ),
     ],
@@ -564,17 +564,17 @@ class _ContactRow extends StatelessWidget {
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 20, color: olive),
+        Icon(icon, size: 20, color: AppColors.darkPurple),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: const TextStyle(fontSize: 10, color: _muted)),
+              Text(label, style: const TextStyle(fontSize: 10, color: AppColors.textSecondary)),
               const SizedBox(height: 4),
               SelectableText(
                 value,
-                style: const TextStyle(fontSize: 13, color: ink, height: 1.5),
+                style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, height: 1.5),
               ),
             ],
           ),
@@ -601,7 +601,7 @@ class _ActionTile extends StatelessWidget {
     contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
     leading: Icon(
       icon,
-      color: destructive ? const Color(0xFFB76E64) : olive,
+      color: destructive ? const Color(0xFFD94A4A) : AppColors.darkPurple,
       size: 21,
     ),
     title: Text(
@@ -609,19 +609,19 @@ class _ActionTile extends StatelessWidget {
       style: TextStyle(
         fontSize: 13,
         fontWeight: FontWeight.w600,
-        color: destructive ? const Color(0xFFB76E64) : ink,
+        color: destructive ? const Color(0xFFD94A4A) : AppColors.textPrimary,
       ),
     ),
     subtitle: Padding(
       padding: const EdgeInsets.only(top: 5),
       child: Text(
         subtitle,
-        style: const TextStyle(fontSize: 11, height: 1.4, color: _muted),
+        style: const TextStyle(fontSize: 11, height: 1.4, color: AppColors.textSecondary),
       ),
     ),
     trailing: Icon(
       Icons.chevron_right_rounded,
-      color: destructive ? const Color(0xFFB76E64) : _muted,
+      color: destructive ? const Color(0xFFD94A4A) : AppColors.textSecondary,
       size: 19,
     ),
     onTap: onTap,

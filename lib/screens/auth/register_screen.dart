@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../controllers/session_controller.dart';
-import '../../utils/validators.dart';
-import '../../widgets/auth_widgets.dart';
+import '../../core/utils/validators.dart';
+import '../../widgets/auth_layout.dart';
+import '../../widgets/primary_button.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key, required this.session});
@@ -22,6 +23,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       phone = TextEditingController();
   bool busy = false, hidden = true;
   String? error;
+
   @override
   void dispose() {
     for (final c in [username, email, password, confirm, name, major, phone]) {
@@ -31,88 +33,82 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Frame(
-    child: SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Form(
+  Widget build(BuildContext context) => AuthLayout(
+    title: 'Tạo tài khoản',
+    subtitle: 'Bắt đầu cùng nhóm của bạn.',
+    showBack: true,
+    backEnabled: !busy,
+    showLogo: false,
+    children: [
+      Form(
         key: form,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            IconButton(
-              onPressed: busy ? null : () => Navigator.pop(context),
-              icon: const Icon(Icons.arrow_back),
+            field(
+              name,
+              'Họ tên',
+              requiredText,
+              icon: Icons.badge_outlined,
+              max: 80,
             ),
-            const Text(
-              'Tạo tài khoản TeamUp',
-              style: TextStyle(
-                fontSize: 25,
-                fontWeight: FontWeight.bold,
-                color: ink,
-              ),
+            field(
+              username,
+              'Tên đăng nhập',
+              usernameValidator,
+              icon: Icons.person_outline,
+              max: 30,
             ),
-            const SizedBox(height: 12),
-            const Text('Bắt đầu cùng nhóm của bạn.'),
-            const SizedBox(height: 24),
-            field(name, 'Họ tên', requiredText, max: 80),
-            field(username, 'Tên đăng nhập', usernameValidator, max: 30),
             field(
               email,
               'Email',
               emailValidator,
+              icon: Icons.mail_outline,
               keyboard: TextInputType.emailAddress,
             ),
-            TextFormField(
-              controller: password,
-              obscureText: hidden,
-              validator: passwordValidator,
-              decoration: InputDecoration(
-                labelText: 'Mật khẩu',
-                suffixIcon: IconButton(
-                  tooltip: 'Ẩn / hiện mật khẩu',
-                  onPressed: () => setState(() => hidden = !hidden),
-                  icon: const Icon(Icons.visibility_outlined),
-                ),
-              ),
+            passwordField(password, 'Mật khẩu', passwordValidator),
+            passwordField(
+              confirm,
+              'Xác nhận mật khẩu',
+              (v) => v == password.text ? null : 'Mật khẩu xác nhận không khớp.',
+              toggle: false,
             ),
-            const SizedBox(height: 18),
-            TextFormField(
-              controller: confirm,
-              obscureText: hidden,
-              validator: (v) =>
-                  v == password.text ? null : 'Mật khẩu xác nhận không khớp.',
-              decoration: const InputDecoration(labelText: 'Xác nhận mật khẩu'),
-            ),
-            const SizedBox(height: 18),
             field(
               major,
               'Ngành học / Chuyên môn (không bắt buộc)',
               null,
+              icon: Icons.school_outlined,
               max: 120,
             ),
             field(
               phone,
               'Số điện thoại (không bắt buộc)',
               phoneValidator,
+              icon: Icons.phone_outlined,
               keyboard: TextInputType.phone,
             ),
-            if (error != null)
-              Text(error!, style: const TextStyle(color: Colors.red)),
-            if (busy) const LinearProgressIndicator(),
+            const SizedBox(height: 6),
+            if (error != null) FormMessage(error!),
+            if (busy)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 12),
+                child: LinearProgressIndicator(),
+              ),
             PrimaryButton(
               busy ? 'Đang đăng ký…' : 'Đăng ký',
               onPressed: busy ? null : submit,
             ),
-            const SizedBox(height: 24),
           ],
         ),
       ),
-    ),
+    ],
   );
+
   Widget field(
     TextEditingController c,
     String label,
     String? Function(String?)? validator, {
+    required IconData icon,
     int? max,
     TextInputType? keyboard,
   }) => Padding(
@@ -121,19 +117,56 @@ class _RegisterScreenState extends State<RegisterScreen> {
       controller: c,
       maxLength: max,
       keyboardType: keyboard,
+      textInputAction: TextInputAction.next,
       validator: validator,
-      decoration: InputDecoration(labelText: label),
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon),
+        counterText: '',
+      ),
     ),
   );
+
+  Widget passwordField(
+    TextEditingController c,
+    String label,
+    String? Function(String?) validator, {
+    bool toggle = true,
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: 18),
+    child: TextFormField(
+      controller: c,
+      obscureText: hidden,
+      validator: validator,
+      textInputAction: TextInputAction.next,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: const Icon(Icons.lock_outline),
+        suffixIcon: toggle
+            ? IconButton(
+                tooltip: hidden ? 'Hiện mật khẩu' : 'Ẩn mật khẩu',
+                onPressed: () => setState(() => hidden = !hidden),
+                icon: Icon(
+                  hidden
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                ),
+              )
+            : null,
+      ),
+    ),
+  );
+
   Future<void> submit() async {
     if (busy || !form.currentState!.validate()) return;
     setState(() {
       busy = true;
       error = null;
     });
+    final registered = username.text.trim().toLowerCase();
     try {
       await widget.session.auth.signUp({
-        'username': username.text.trim().toLowerCase(),
+        'username': registered,
         'email': email.text.trim().toLowerCase(),
         'password': password.text,
         'displayName': name.text.trim(),
@@ -141,14 +174,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         'phone': phone.text.trim(),
       });
       if (!mounted) return;
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Đăng ký thành công. Hãy đăng nhập bằng tên đăng nhập.',
-          ),
-        ),
-      );
+      Navigator.pop(context, registered);
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
     } finally {

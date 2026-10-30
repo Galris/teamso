@@ -20,6 +20,9 @@ class SessionController extends ChangeNotifier {
   UserProfile? user;
   bool initializing = true;
   String? startupError;
+
+  /// Thông báo một lần hiển thị ở màn đăng nhập (vd. sau khi đổi mật khẩu).
+  String? notice;
   Future<void> restore() async {
     initializing = true;
     startupError = null;
@@ -37,6 +40,7 @@ class SessionController extends ChangeNotifier {
   Future<void> signIn(String username, String password) async {
     user = await auth.signIn(username, password);
     startupError = null;
+    notice = null;
     notifyListeners();
   }
 
@@ -46,6 +50,17 @@ class SessionController extends ChangeNotifier {
     if (generation == api.epoch) {
       user = updated;
       notifyListeners();
+    }
+  }
+
+  /// Đổi mật khẩu xong server thu hồi mọi phiên nên app quay về đăng nhập.
+  Future<void> changePassword(String current, String next) async {
+    notice = 'Đổi mật khẩu thành công. Hãy đăng nhập lại bằng mật khẩu mới.';
+    try {
+      await users.changePassword(current, next);
+    } catch (_) {
+      notice = null;
+      rethrow;
     }
   }
 
