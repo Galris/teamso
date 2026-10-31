@@ -1,7 +1,13 @@
+import 'dart:async';
+
+import '../../controllers/session_controller.dart';
+import '../../services/chat_service.dart';
+
 import 'package:flutter/material.dart';
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key});
+  const ChatScreen({super.key, required this.session});
+  final SessionController session;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -11,78 +17,92 @@ class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
-  final List<_ChatMessage> _messages = [
-    _ChatMessage(
-      sender: 'Doanh',
-      content: 'Mọi người cập nhật tiến độ công việc hôm nay nha!',
-      time: '08:30',
-      type: _MessageType.member,
-    ),
-    _ChatMessage(
-      sender: 'Vân',
-      content: 'Mình đang làm màn hình Workspace và Chat.',
-      time: '08:35',
-      type: _MessageType.me,
-    ),
-    _ChatMessage(
-      sender: 'TeamUp Bot',
-      content: 'Nhắc nhở: Task "Hoàn thành giao diện" sắp đến hạn.',
-      time: '08:40',
-      type: _MessageType.bot,
-    ),
-    _ChatMessage(
-      sender: 'Nghi',
-      content: 'Mình đã cập nhật phần đăng nhập rồi nhé.',
-      time: '08:45',
-      type: _MessageType.member,
-    ),
-    _ChatMessage(
-      sender: 'TeamUp Bot',
-      content: 'Task "Thiết kế màn hình Login" đã được chuyển sang Done.',
-      time: '08:50',
-      type: _MessageType.bot,
-    ),
-  ];
+  List<_ChatMessage> _messages = [];
+  late final ChatService _chat;
+  StreamSubscription<List<Map<String, dynamic>>>? _subscription;
+  bool _sending = false;
+  bool _loading = true;
+  String? _connectionError;
 
   @override
-  void dispose() {
-    _messageController.dispose();
-    _scrollController.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _chat = ChatService(widget.session.api);
+    _subscription = _chat.listenToMessages(
+      (rows) {
+        if (!mounted) return;
+        final shouldScroll =
+            !_scrollController.hasClients ||
+            _scrollController.position.maxScrollExtent -
+                    _scrollController.offset <
+                100;
+        setState(() {
+          _loading = false;
+          _connectionError = null;
+          _messages = rows.map((row) {
+            final date = DateTime.tryParse(row['timestamp'] as String? ?? '')
+                ?.toLocal();
+            return _ChatMessage(
+              sender: row['name'] as String? ?? 'Thành viên',
+              content: row['text'] as String? ?? '',
+              time: date == null
+                  ? ''
+                  : '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}',
+              type: row['uid'] == widget.session.user?.id
+                  ? _MessageType.me
+                  : _MessageType.member,
+            );
+          }).toList();
+        });
+        if (shouldScroll) _scrollToBottom();
+      },
+      onError: (error) {
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _connectionError = 'Không kết nối được chat. Đang thử lại…';
+          });
+        }
+      },
+    );
   }
 
-  void _sendMessage() {
-    final content = _messageController.text.trim();
-
-    if (content.isEmpty) return;
-
-    final now = TimeOfDay.now();
-    final time =
-        '${now.hour.toString().padLeft(2, '0')}:'
-        '${now.minute.toString().padLeft(2, '0')}';
-
-    setState(() {
-      _messages.add(
-        _ChatMessage(
-          sender: 'Vân',
-          content: content,
-          time: time,
-          type: _MessageType.me,
-        ),
-      );
-    });
-
-    _messageController.clear();
-
+  void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-
+      if (!mounted || !_scrollController.hasClients) return;
       _scrollController.animateTo(
         _scrollController.position.maxScrollExtent,
         duration: const Duration(milliseconds: 250),
         curve: Curves.easeOut,
       );
     });
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    _messageController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _sendMessage() async {
+    final text = _messageController.text.trim();
+    if (text.isEmpty || _sending) return;
+    setState(() => _sending = true);
+    try {
+      await _chat.sendMessage(text);
+      if (!mounted) return;
+      if (_messageController.text.trim() == text) _messageController.clear();
+      _scrollToBottom();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
   }
 
   Widget _buildMessage(_ChatMessage message) {
@@ -168,11 +188,21 @@ class _ChatScreenState extends State<ChatScreen> {
         // Thông tin phòng chat
         const ListTile(
           leading: CircleAvatar(child: Icon(Icons.groups_outlined)),
-          title: Text('Chat dự án TeamUp'),
-          subtitle: Text('Phòng chat nhóm - Dữ liệu mẫu'),
+          title: Text('Chat chung TeamUp'),
         ),
         const Divider(height: 1),
 
+        if (_connectionError != null)
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: Text(_connectionError!),
+          ),
+        if (_loading) const LinearProgressIndicator(),
+        if (!_loading && _messages.isEmpty && _connectionError == null)
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('Chưa có tin nhắn. Hãy bắt đầu cuộc trò chuyện!'),
+          ),
         // Danh sách tin nhắn
         Expanded(
           child: ListView.builder(
@@ -195,6 +225,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 Expanded(
                   child: TextField(
                     controller: _messageController,
+                    maxLength: 2000,
                     minLines: 1,
                     maxLines: 4,
                     textInputAction: TextInputAction.send,
@@ -209,8 +240,14 @@ class _ChatScreenState extends State<ChatScreen> {
                 const SizedBox(width: 8),
                 IconButton.filled(
                   tooltip: 'Gửi tin nhắn',
-                  onPressed: _sendMessage,
-                  icon: const Icon(Icons.send),
+                  onPressed: _sending ? null : _sendMessage,
+                  icon: _sending
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.send),
                 ),
               ],
             ),

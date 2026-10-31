@@ -31,7 +31,7 @@ class _MainScreenState extends State<MainScreen> {
     HomeScreen(session: widget.session, projects: _projects),
     TaskBoardScreen(projects: _projects),
     const WorkspaceScreen(),
-    const ChatScreen(),
+    ChatScreen(session: widget.session),
     const NotificationScreen(),
   ];
 
@@ -67,11 +67,16 @@ class _MainScreenState extends State<MainScreen> {
           IconButton(onPressed: () {}, icon: const Icon(Icons.search)),
           IconButton(
             tooltip: 'Hồ sơ cá nhân',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => ProfileScreen(session: widget.session),
-              ),
-            ),
+            onPressed: () async {
+              final goHome = await Navigator.of(context).push<bool>(
+                MaterialPageRoute<bool>(
+                  builder: (_) => ProfileScreen(session: widget.session),
+                ),
+              );
+              if (mounted && goHome == true) {
+                setState(() => _currentIndex = 0);
+              }
+            },
             icon: const Icon(Icons.account_circle_outlined),
           ),
         ],

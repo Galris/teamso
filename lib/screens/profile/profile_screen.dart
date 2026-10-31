@@ -8,7 +8,6 @@ import '../../widgets/user_avatar.dart';
 import '../auth/change_password_screen.dart';
 import 'edit_profile_screen.dart';
 
-
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key, required this.session});
   final SessionController session;
@@ -78,7 +77,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _ProfileHeader(user: user, onEdit: _editProfile),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => Navigator.of(context).pop(true),
+                icon: const Icon(Icons.home_outlined),
+                label: const Text('Về trang chủ'),
+              ),
+            ),
+            _ProfileHeader(user: user),
             Padding(
               padding: const EdgeInsets.fromLTRB(22, 28, 22, 0),
               child: Column(
@@ -119,12 +126,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         padding: EdgeInsets.all(20),
                         child: Row(
                           children: [
-                            Icon(Icons.folder_open_rounded, color: AppColors.darkPurple),
+                            Icon(
+                              Icons.folder_open_rounded,
+                              color: AppColors.darkPurple,
+                            ),
                             SizedBox(width: 12),
                             Expanded(
                               child: Text(
                                 'Bạn chưa tham gia dự án nào.',
-                                style: TextStyle(color: AppColors.textSecondary, height: 1.5),
+                                style: TextStyle(
+                                  color: AppColors.textSecondary,
+                                  height: 1.5,
+                                ),
                               ),
                             ),
                           ],
@@ -292,9 +305,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 }
 
 class _ProfileHeader extends StatelessWidget {
-  const _ProfileHeader({required this.user, required this.onEdit});
+  const _ProfileHeader({required this.user});
   final UserProfile user;
-  final VoidCallback onEdit;
+
   @override
   Widget build(BuildContext context) => Container(
     decoration: const BoxDecoration(
@@ -326,46 +339,7 @@ class _ProfileHeader extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 28),
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(5),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.85),
-                  width: 2,
-                ),
-              ),
-              child: UserAvatar(large: true, url: user.avatarUrl),
-            ),
-            Positioned(
-              bottom: 0,
-              right: 0,
-              child: Material(
-                color: AppColors.darkPurple,
-                shape: const CircleBorder(
-                  side: BorderSide(color: Color(0xFFFFFFFF), width: 3),
-                ),
-                child: IconButton(
-                  tooltip: 'Chỉnh sửa ảnh đại diện',
-                  onPressed: onEdit,
-                  icon: const Icon(
-                    Icons.camera_alt_outlined,
-                    color: Colors.white,
-                    size: 17,
-                  ),
-                  constraints: const BoxConstraints.tightFor(
-                    width: 36,
-                    height: 36,
-                  ),
-                  padding: EdgeInsets.zero,
-                ),
-              ),
-            ),
-          ],
-        ),
+        const UserAvatar(large: true),
         const SizedBox(height: 18),
         Text(
           user.name.isEmpty ? user.username : user.name,
@@ -387,7 +361,11 @@ class _ProfileHeader extends StatelessWidget {
         const Text(
           'Mỗi đóng góp nhỏ, cùng tạo điều lớn.',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.5),
+          style: TextStyle(
+            fontSize: 12,
+            color: AppColors.textSecondary,
+            height: 1.5,
+          ),
         ),
       ],
     ),
@@ -427,7 +405,9 @@ class _ProjectCard extends StatelessWidget {
               ),
               child: Icon(
                 Icons.folder_outlined,
-                color: completed ? const Color(0xFF867CB3) : AppColors.darkPurple,
+                color: completed
+                    ? const Color(0xFF867CB3)
+                    : AppColors.darkPurple,
                 size: 21,
               ),
             ),
@@ -460,7 +440,9 @@ class _ProjectCard extends StatelessWidget {
                         color: completed
                             ? const Color(0xFFE6F2E8)
                             : const Color(0xFFFFF0D5),
-                        textColor: completed ? AppColors.darkPurple : const Color(0xFF9A7840),
+                        textColor: completed
+                            ? AppColors.darkPurple
+                            : const Color(0xFF9A7840),
                       ),
                     ],
                   ),
@@ -543,7 +525,11 @@ class _SectionTitle extends StatelessWidget {
           padding: const EdgeInsets.only(top: 5),
           child: Text(
             caption!,
-            style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.5),
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+              height: 1.5,
+            ),
           ),
         ),
     ],
@@ -570,11 +556,21 @@ class _ContactRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: const TextStyle(fontSize: 10, color: AppColors.textSecondary)),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: AppColors.textSecondary,
+                ),
+              ),
               const SizedBox(height: 4),
               SelectableText(
                 value,
-                style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, height: 1.5),
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textPrimary,
+                  height: 1.5,
+                ),
               ),
             ],
           ),
@@ -616,7 +612,11 @@ class _ActionTile extends StatelessWidget {
       padding: const EdgeInsets.only(top: 5),
       child: Text(
         subtitle,
-        style: const TextStyle(fontSize: 11, height: 1.4, color: AppColors.textSecondary),
+        style: const TextStyle(
+          fontSize: 11,
+          height: 1.4,
+          color: AppColors.textSecondary,
+        ),
       ),
     ),
     trailing: Icon(

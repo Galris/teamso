@@ -116,6 +116,5 @@ class UserProfile {
     'major': specialty,
     'phone': phone,
     'bio': bio,
-    'avatarUrl': avatarUrl,
   };
 }

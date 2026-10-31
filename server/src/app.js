@@ -1,3 +1,4 @@
+import { sendMessage, listenToMessages } from './firebase/messages.js';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -26,6 +27,36 @@ export function createApp() {
     req.user = await profileFor(decoded.uid);
     next();
   }
+  const messageLimit = rateLimit({ windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false,
+    handler: (_req, res) => res.status(429).json({ code: 'RATE_LIMIT', message: 'Bạn gửi quá nhanh. Vui lòng chờ một chút.' }) });
+  app.post('/api/messages', protectedRoute, messageLimit, async (req, res) => {
+    const result = await sendMessage(req.body?.text, req.uid, req.user.displayName || req.user.username, req.user.avatarUrl);
+    res.status(201).json(result);
+  });
+  app.get('/api/messages/stream', protectedRoute, (req, res) => {
+    res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', 'X-Accel-Buffering': 'no' });
+    res.flushHeaders();
+    let unsubscribe = () => {};
+    let closed = false;
+    let heartbeat, renewal;
+    function close() {
+      if (closed) return;
+      closed = true;
+      clearInterval(heartbeat); clearTimeout(renewal); unsubscribe(); res.end();
+    }
+    res.on('close', close);
+    const write = data => {
+      if (!closed && !res.write(`data: ${JSON.stringify(data)}\n\n`)) close();
+    };
+    unsubscribe = listenToMessages(messages => write({ messages }), () => {
+      write({ error: 'CHAT_UNAVAILABLE' }); close();
+    });
+    if (closed) { unsubscribe(); return; }
+    heartbeat = setInterval(() => { if (!closed && !res.write(': heartbeat\n\n')) close(); }, 15000);
+    // Reconnect with bearer verification, so revoked/expired sessions lose access.
+    renewal = setTimeout(close, 60000);
+  });
+
   app.get('/api/health', async (_req, res) => {
     await db.collection('_health').limit(1).get();
     res.json({ status: 'ok', authentication: 'Firebase Authentication', database: 'Cloud Firestore' });
