@@ -1,3 +1,7 @@
+import 'dart:async';
+
+import 'package:firebase_messaging/firebase_messaging.dart';
+
 import '../widgets/app_navigation_bar.dart';
 
 import 'package:flutter/material.dart';
@@ -22,6 +26,35 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
+  StreamSubscription<RemoteMessage>? _foregroundPush;
+  StreamSubscription<RemoteMessage>? _openedPush;
+
+  @override
+  void initState() {
+    super.initState();
+    final push = widget.session?.push;
+    if (push == null || !push.supported) return;
+    unawaited(push.start());
+    _foregroundPush = FirebaseMessaging.onMessage.listen((message) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message.notification?.title ?? 'Bạn có thông báo mới'),
+          action: SnackBarAction(label: 'Xem', onPressed: () => _select(4)),
+        ),
+      );
+    });
+    _openedPush = FirebaseMessaging.onMessageOpenedApp.listen((_) {
+      if (mounted) _select(4);
+    });
+    FirebaseMessaging.instance
+        .getInitialMessage()
+        .then((message) {
+          if (message != null && mounted) _select(4);
+        })
+        .catchError((Object _) {});
+  }
+
   final ValueNotifier<int> _unread = ValueNotifier<int>(0);
 
   static const _dests = appDestinations;
@@ -39,6 +72,8 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   void dispose() {
+    _foregroundPush?.cancel();
+    _openedPush?.cancel();
     _unread.dispose();
     super.dispose();
   }

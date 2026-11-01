@@ -7,6 +7,7 @@ import '../models/user_profile.dart';
 import '../services/app_services.dart';
 import '../services/auth_service.dart';
 import '../services/service_errors.dart';
+import '../services/push_service.dart';
 import '../services/team_services.dart';
 import '../screens/tasks/task_store.dart';
 
@@ -26,6 +27,7 @@ class SessionController extends ChangeNotifier {
   ChatService get chat => _services.chat;
   WorkspaceService get workspace => _services.workspace;
   NotificationService get notifications => _services.notifications;
+  PushService get push => _services.push;
 
   StreamSubscription<User?>? _authSubscription;
   int _authEpoch = 0;
@@ -92,6 +94,7 @@ class SessionController extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    await push.disable();
     await auth.signOut();
     await TaskStore.instance.stop();
     user = null;

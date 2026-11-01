@@ -1,6 +1,7 @@
-import { registerWorkspace } from './workspace.js';
 import { sendMessage, listenToMessages } from './firebase/messages.js';
 import express from 'express';
+import { registerWorkspace } from './workspace.js';
+import { notificationService, registerNotificationDevices } from './notifications.js';
 import cors from 'cors';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
@@ -10,7 +11,7 @@ import { auth, db, firebaseRest, profileFor, FirebaseRequestError } from './fire
 import { validate, signupSchema, signinSchema, refreshSchema, profileSchema, changePasswordSchema } from './validation.js';
 
 const fail = (status, message, code) => Object.assign(new Error(message), { status, code });
-export function createApp() {
+export function createApp({messaging} = {}) {
   const app = express();
   app.disable('x-powered-by'); app.use(helmet());
   app.use(cors({ origin(origin, cb) { cb(null, !origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)); } }));
@@ -28,7 +29,9 @@ export function createApp() {
     req.user = await profileFor(decoded.uid);
     next();
   }
-  registerWorkspace(app, { db, protectedRoute });
+  const notifications = notificationService(db, messaging);
+  registerNotificationDevices(app, { db, protectedRoute });
+  registerWorkspace(app, { db, protectedRoute, notifications });
   const messageLimit = rateLimit({ windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false,
     handler: (_req, res) => res.status(429).json({ code: 'RATE_LIMIT', message: 'Bạn gửi quá nhanh. Vui lòng chờ một chút.' }) });
   app.post('/api/messages', protectedRoute, messageLimit, async (req, res) => {
@@ -147,13 +150,19 @@ export function createApp() {
     const found = await db.collection('projects').where('joinCode', '==', code).limit(1).get();
     if (found.empty) throw fail(404, 'Mã tham gia không hợp lệ.', 'INVALID_JOIN_CODE');
     const projectId = found.docs[0].id, pRef = projectRef(projectId), mRef = memberRef(projectId, req.uid);
-    await db.runTransaction(async tx => {
-      const existing = await tx.get(mRef);
+    const jobs = await db.runTransaction(async tx => {
+      const [existing, project] = await Promise.all([tx.get(mRef), tx.get(pRef)]);
+      if (!project.exists) throw fail(404, 'Không tìm thấy dự án.', 'PROJECT_NOT_FOUND');
       if (existing.exists) throw fail(409, 'Bạn đã tham gia dự án này.', 'ALREADY_MEMBER');
       tx.set(mRef, { uid: req.uid, role: 'member', JoinAt: FieldValue.serverTimestamp(), joinedAt: FieldValue.serverTimestamp(), taskCount: 0, completedTaskCount: 0 });
       tx.set(membershipRef(req.uid, projectId), { role: 'member', joinedAt: FieldValue.serverTimestamp() });
       tx.update(pRef, { memberIds: FieldValue.arrayUnion(req.uid), updatedAt: FieldValue.serverTimestamp() });
+      return notifications.stage(tx, [req.uid], {
+        type: 'project_joined', title: 'Bạn đã tham gia dự án',
+        body: `Bạn đã tham gia “${project.data().name || 'Dự án'}”.`, projectId, targetId: projectId,
+      });
     });
+    await notifications.deliver(jobs);
     res.status(201).json({ projectId });
   });
   app.post('/api/projects/:projectId/members', protectedRoute, async (req, res) => {
@@ -164,12 +173,24 @@ export function createApp() {
     const targetUid = claim.data()?.uid;
     if (!targetUid) throw fail(404, 'Không tìm thấy username.', 'USER_NOT_FOUND');
     const mRef = memberRef(req.params.projectId, targetUid);
-    await db.runTransaction(async tx => {
-      if ((await tx.get(mRef)).exists) throw fail(409, 'Người dùng đã tham gia dự án này.', 'ALREADY_MEMBER');
+    const pRef = projectRef(req.params.projectId);
+    const jobs = await db.runTransaction(async tx => {
+      const [existing, project, leader] = await Promise.all([
+        tx.get(mRef), tx.get(pRef), tx.get(memberRef(req.params.projectId, req.uid)),
+      ]);
+      if (!project.exists) throw fail(404, 'Không tìm thấy dự án.', 'PROJECT_NOT_FOUND');
+      if (leader.data()?.role !== 'leader') throw fail(403, 'Chỉ leader mới được thực hiện thao tác này.', 'LEADER_REQUIRED');
+      if (existing.exists) throw fail(409, 'Người dùng đã tham gia dự án này.', 'ALREADY_MEMBER');
       tx.set(mRef, { uid: targetUid, role: 'member', JoinAt: FieldValue.serverTimestamp(), joinedAt: FieldValue.serverTimestamp(), taskCount: 0, completedTaskCount: 0 });
       tx.set(membershipRef(targetUid, req.params.projectId), { role: 'member', joinedAt: FieldValue.serverTimestamp() });
-      tx.update(projectRef(req.params.projectId), { memberIds: FieldValue.arrayUnion(targetUid), updatedAt: FieldValue.serverTimestamp() });
+      tx.update(pRef, { memberIds: FieldValue.arrayUnion(targetUid), updatedAt: FieldValue.serverTimestamp() });
+      return notifications.stage(tx, [targetUid], {
+        type: 'member_added', title: 'Bạn đã được thêm vào dự án',
+        body: `Bạn đã được thêm vào “${project.data().name || 'Dự án'}”.`,
+        projectId: req.params.projectId, targetId: req.params.projectId,
+      });
     });
+    await notifications.deliver(jobs);
     res.status(201).json({ uid: targetUid });
   });
   app.get('/api/projects/:projectId/members', protectedRoute, async (req, res) => {
@@ -209,7 +230,9 @@ export function createApp() {
     const ref = p.ref.collection('tasks').doc(), data = { title, description: String(body.description ?? ''), status: 'todo', priority: body.priority ?? 'medium', assigneeIds,
       createdBy: req.uid, startDate: body.startDate ? new Date(body.startDate) : null, dueDate: body.dueDate ? new Date(body.dueDate) : null,
       attachmentUrls: Array.isArray(body.attachmentUrls) ? body.attachmentUrls : [], outputType: body.outputType ?? 'none', outputRequired: body.outputRequired ?? false, checklist: Array.isArray(body.checklist) ? body.checklist : [], createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() };
-    const batch = db.batch(); batch.create(ref, data); batch.update(p.ref, { totalTasks: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() }); addActivity(batch, req.params.projectId, req.uid, 'task_created', ref.id, title); await batch.commit();
+    const batch = db.batch(); batch.create(ref, data); batch.update(p.ref, { totalTasks: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() }); addActivity(batch, req.params.projectId, req.uid, 'task_created', ref.id, title);
+    const jobs = notifications.stage(batch, assigneeIds, {type: 'assigned', title: 'Bạn được giao việc mới', body: `“${title}” vừa được giao cho bạn.`, projectId: req.params.projectId, targetId: ref.id});
+    await batch.commit(); await notifications.deliver(jobs);
     res.status(201).json({ task: { id: ref.id, projectId: req.params.projectId, ...clean(data) } });
   });
   app.patch('/api/projects/:projectId/tasks/:taskId', protectedRoute, async (req, res) => {
@@ -250,7 +273,23 @@ export function createApp() {
     const wasCompleted = old.status === 'completed', willBeCompleted = (changes.status ?? old.status) === 'completed';
     const batch = db.batch(); batch.update(ref, changes);
     if (wasCompleted !== willBeCompleted) batch.update(p.ref, { completedTasks: FieldValue.increment(willBeCompleted ? 1 : -1), updatedAt: FieldValue.serverTimestamp() });
-    await batch.commit();
+    const newlyAssigned = (changes.assigneeIds ?? []).filter(uid => !(old.assigneeIds ?? []).includes(uid));
+    const taskTitle = changes.title ?? old.title ?? 'Công việc';
+    const common = {projectId: req.params.projectId, targetId: ref.id};
+    const jobs = notifications.stage(batch, newlyAssigned, {...common, type: 'assigned', title: 'Bạn được giao việc mới', body: `“${taskTitle}” vừa được giao cho bạn.`});
+    const changed = Object.keys(body).some(key => JSON.stringify(body[key]) !== JSON.stringify(old[key]));
+    if (changed) {
+      const currentMembers = new Set((await p.ref.collection('members').get()).docs.map(d => d.id));
+      currentMembers.add(p.data.ownerId);
+      const recipients = [...new Set([...(changes.assigneeIds ?? old.assigneeIds ?? []), p.data.ownerId])].filter(uid => currentMembers.has(uid) && uid !== req.uid && !newlyAssigned.includes(uid));
+      const labels = {in_progress:'đang thực hiện', pending_review:'chờ duyệt', completed:'đã hoàn thành', revision_required:'cần chỉnh sửa', todo:'chưa bắt đầu'};
+      jobs.push(...notifications.stage(batch, recipients, {...common,
+        type: changes.status === 'completed' ? 'completed' : 'updated',
+        title: changes.status === 'pending_review' ? 'Công việc chờ duyệt' : 'Công việc được cập nhật',
+        body: changes.status ? `“${taskTitle}”: ${labels[changes.status]}.` : `Thông tin “${taskTitle}” vừa thay đổi.`,
+      }));
+    }
+    await batch.commit(); await notifications.deliver(jobs);
     res.json({ message: 'Đã cập nhật công việc.' });
   });
   app.delete('/api/projects/:projectId/tasks/:taskId', protectedRoute, async (req, res) => {
@@ -320,6 +359,8 @@ export function createApp() {
     try {
       const tokens = await firebaseRest('token', { grant_type: 'refresh_token', refresh_token: data.refreshToken }, { secureToken: true });
       await auth.revokeRefreshTokens(tokens.user_id);
+      const devices = await db.collection('_pushDevices').where('uid', '==', tokens.user_id).get();
+      await Promise.all(devices.docs.map(d => d.ref.delete()));
     } catch (error) { if (!(error instanceof FirebaseRequestError) || error.status !== 401) throw error; }
     res.json({ message: 'Đã đăng xuất và thu hồi phiên đăng nhập trên tất cả thiết bị.' });
   });

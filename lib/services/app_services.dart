@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import 'api_client.dart';
 import 'auth_service.dart';
+import 'push_service.dart';
 import 'team_services.dart';
 
 /// Composition root: toàn ứng dụng dùng chung các service hiện có.
@@ -47,7 +48,9 @@ class AppServices {
     api: api,
   );
 
-  // Giữ nguyên service Notification hiện có, không chỉnh logic notification.
+  late final PushService push = PushService(api, auth);
+
+  // Hộp thư thông báo realtime.
   late final NotificationService notifications = NotificationService(
     firestore: firestore,
     auth: auth,
