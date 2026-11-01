@@ -293,8 +293,15 @@ export function createApp() {
   app.post('/api/auth/signin', async (req, res) => {
     const data = validate(signinSchema, req);
     const mapping = (await db.collection('usernames').doc(data.username).get()).data();
-    if (!mapping?.email) throw fail(401, 'Tên đăng nhập hoặc mật khẩu không đúng.', 'INVALID_CREDENTIALS');
-    const tokens = await firebaseRest('accounts:signInWithPassword', { email: mapping.email, password: data.password, returnSecureToken: true });
+    const invalidLogin = () => fail(401, 'Tên đăng nhập hoặc mật khẩu không đúng.', 'INVALID_CREDENTIALS');
+    if (typeof mapping?.uid !== 'string' || !mapping.uid) throw invalidLogin();
+    let account;
+    try { account = await auth.getUser(mapping.uid); }
+    catch (error) { if (error.code === 'auth/user-not-found') throw invalidLogin(); throw error; }
+    if (!account.email || account.disabled) throw invalidLogin();
+    const profile = await profileFor(mapping.uid);
+    if (profile.username !== data.username) throw invalidLogin();
+    const tokens = await firebaseRest('accounts:signInWithPassword', { email: account.email, password: data.password, returnSecureToken: true });
     if (tokens.localId !== mapping.uid) throw fail(401, 'Thông tin tài khoản không hợp lệ.', 'INVALID_CREDENTIALS');
     await auth.verifyIdToken(tokens.idToken, true);
     res.json({ accessToken: tokens.idToken, refreshToken: tokens.refreshToken, user: await profileFor(tokens.localId) });

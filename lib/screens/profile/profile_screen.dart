@@ -1,3 +1,7 @@
+import 'package:flutter/foundation.dart';
+
+import '../../widgets/app_navigation_bar.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../controllers/session_controller.dart';
@@ -11,8 +15,15 @@ const _muted = Color(0xFF777482);
 const _border = Color(0xFFE8E6ED);
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key, required this.session});
+  const ProfileScreen({
+    super.key,
+    required this.session,
+    this.selectedTab = 0,
+    this.unread,
+  });
   final SessionController session;
+  final int selectedTab;
+  final ValueListenable<int>? unread;
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
@@ -99,13 +110,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (context, _) {
         final projects = _realProjects(TaskStore.instance);
         return Frame(
+          bottomNavigationBar: AppNavigationBar(
+            selectedIndex: widget.selectedTab,
+            unread: widget.unread,
+            onSelected: (index) => Navigator.of(context).pop(index),
+          ),
           child: SingleChildScrollView(
             key: const PageStorageKey('profile-scroll'),
             padding: const EdgeInsets.only(bottom: 28),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _ProfileHeader(user: user, onEdit: _editProfile),
+                _ProfileHeader(
+                  user: user,
+                  onHome: () => Navigator.of(context).pop(0),
+                ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(22, 28, 22, 0),
                   child: Column(
@@ -300,9 +319,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 }
 
 class _ProfileHeader extends StatelessWidget {
-  const _ProfileHeader({required this.user, required this.onEdit});
+  const _ProfileHeader({required this.user, required this.onHome});
   final UserProfile user;
-  final VoidCallback onEdit;
+  final VoidCallback onHome;
   @override
   Widget build(BuildContext context) => Container(
     decoration: const BoxDecoration(
@@ -316,10 +335,15 @@ class _ProfileHeader extends StatelessWidget {
     padding: const EdgeInsets.fromLTRB(24, 22, 24, 28),
     child: Column(
       children: [
-        const Row(
+        Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Expanded(
+            IconButton(
+              tooltip: 'Về trang chủ',
+              onPressed: onHome,
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+            const Expanded(
               child: Text(
                 'Hồ sơ cá nhân',
                 style: TextStyle(
@@ -329,52 +353,11 @@ class _ProfileHeader extends StatelessWidget {
                 ),
               ),
             ),
-            SizedBox(width: 12),
-            Icon(Icons.groups_rounded, color: olive, size: 23),
+            const SizedBox(width: 12),
+            const Icon(Icons.groups_rounded, color: olive, size: 23),
           ],
         ),
         const SizedBox(height: 28),
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(5),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.85),
-                  width: 2,
-                ),
-              ),
-              child: Avatar(large: true, url: user.avatarUrl, name: user.name),
-            ),
-            Positioned(
-              bottom: 0,
-              right: 0,
-              child: Material(
-                color: olive,
-                shape: const CircleBorder(
-                  side: BorderSide(color: Color(0xFFFAF8F0), width: 3),
-                ),
-                child: IconButton(
-                  tooltip: 'Chỉnh sửa ảnh đại diện',
-                  onPressed: onEdit,
-                  icon: const Icon(
-                    Icons.camera_alt_outlined,
-                    color: Colors.white,
-                    size: 17,
-                  ),
-                  constraints: const BoxConstraints.tightFor(
-                    width: 36,
-                    height: 36,
-                  ),
-                  padding: EdgeInsets.zero,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 18),
         Text(
           user.name.isEmpty ? user.username : user.name,
           textAlign: TextAlign.center,

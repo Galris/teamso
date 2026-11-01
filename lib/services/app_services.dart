@@ -20,6 +20,7 @@ class AppServices {
   final ApiClient api;
 
   late final AuthService accounts = AuthService(
+    api: api,
     auth: auth,
     firestore: firestore,
   );
@@ -38,10 +39,7 @@ class AppServices {
   );
 
   // Giữ các service vốn đã tồn tại; không tạo WorkspaceService mới.
-  late final ChatService chat = ChatService(
-    firestore: firestore,
-    auth: auth,
-  );
+  late final ChatService chat = ChatService(firestore: firestore, auth: auth);
 
   late final WorkspaceService workspace = WorkspaceService(
     firestore: firestore,
