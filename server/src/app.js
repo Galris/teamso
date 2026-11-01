@@ -1,3 +1,4 @@
+import { registerWorkspace } from './workspace.js';
 import { sendMessage, listenToMessages } from './firebase/messages.js';
 import express from 'express';
 import cors from 'cors';
@@ -27,6 +28,7 @@ export function createApp() {
     req.user = await profileFor(decoded.uid);
     next();
   }
+  registerWorkspace(app, { db, protectedRoute });
   const messageLimit = rateLimit({ windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false,
     handler: (_req, res) => res.status(429).json({ code: 'RATE_LIMIT', message: 'Bạn gửi quá nhanh. Vui lòng chờ một chút.' }) });
   app.post('/api/messages', protectedRoute, messageLimit, async (req, res) => {

@@ -142,6 +142,7 @@ class SkeletonList extends StatelessWidget {
   final double itemHeight;
   @override
   Widget build(BuildContext context) => ListView.separated(
+    shrinkWrap: true,
     physics: const NeverScrollableScrollPhysics(),
     padding: const EdgeInsets.all(20),
     itemCount: count,

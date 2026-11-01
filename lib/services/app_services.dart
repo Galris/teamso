@@ -44,6 +44,7 @@ class AppServices {
   late final WorkspaceService workspace = WorkspaceService(
     firestore: firestore,
     auth: auth,
+    api: api,
   );
 
   // Giữ nguyên service Notification hiện có, không chỉnh logic notification.
