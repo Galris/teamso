@@ -862,7 +862,7 @@ class NotificationService extends _FirestoreService {
       _users.doc(uid).collection('notifications');
 
   /// Thông báo của người đang đăng nhập, cập nhật realtime.
-  /// Nội dung do Cloud Function viết khi dự án/task/thành viên thay đổi.
+  /// Nội dung do backend ghi cùng sự kiện task/Workspace.
   Stream<List<Map<String, dynamic>>> watchMine() {
     final uid = _requireUid();
     return _inbox(uid).snapshots().map(
@@ -884,11 +884,13 @@ class NotificationService extends _FirestoreService {
       () => _inbox(uid).where('read', isEqualTo: false).get(),
     );
     if (unread.docs.isEmpty) return;
-    final batch = _db.batch();
-    for (final doc in unread.docs) {
-      batch.update(doc.reference, {'read': true});
+    for (var start = 0; start < unread.docs.length; start += 400) {
+      final batch = _db.batch();
+      for (final doc in unread.docs.skip(start).take(400)) {
+        batch.update(doc.reference, {'read': true});
+      }
+      await _guard(batch.commit);
     }
-    await _guard(batch.commit);
   }
 }
 

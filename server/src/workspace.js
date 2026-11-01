@@ -27,7 +27,7 @@ const id = value => {
 
 // All writes use Admin SDK after identity, membership and schema validation.
 // Readers continue to subscribe to Firestore for realtime updates.
-export function registerWorkspace(app, { db, protectedRoute }) {
+export function registerWorkspace(app, { db, protectedRoute, notifications }) {
   async function access(tx, projectId, uid) {
     const project = db.collection('projects').doc(id(projectId));
     const [p, m] = await Promise.all([tx.get(project), tx.get(project.collection('members').doc(uid))]);
@@ -42,12 +42,21 @@ export function registerWorkspace(app, { db, protectedRoute }) {
     app.post(`${base}/${collection}`, protectedRoute, async (req, res) => {
       const data = parse(schema, req.body);
       const ref = db.collection('projects').doc(id(req.params.projectId)).collection(collection).doc();
-      await db.runTransaction(async tx => {
-        await access(tx, req.params.projectId, req.uid);
+      const jobs = await db.runTransaction(async tx => {
+        const {project} = await access(tx, req.params.projectId, req.uid);
+        const members = await tx.get(project.collection('members'));
+        const projectData = (await tx.get(project)).data();
+        const recipients = [...new Set([...(members?.docs.map(d => d.id) ?? []), ...(projectData.memberIds ?? []), projectData.ownerId])].filter(uid => uid && uid !== req.uid);
         tx.create(ref, { ...data,
           ...(collection === 'meetings' ? { startsAt: new Date(data.startsAt), endsAt: new Date(data.endsAt) } : {}),
           createdBy: req.uid, createdAt: FieldValue.serverTimestamp() });
+        return !notifications ? [] : notifications.stage(tx, recipients, {
+          type: {documents:'document', meetings:'meeting', votes:'vote'}[collection],
+          title: {documents:'Tài liệu mới', meetings:'Lịch họp mới', votes:'Bình chọn mới'}[collection],
+          body: data.question ?? data.label, projectId: req.params.projectId, targetId: ref.id,
+        });
       });
+      if (notifications) await notifications.deliver(jobs);
       res.status(201).json({ id: ref.id });
     });
     app.delete(`${base}/${collection}/:id`, protectedRoute, async (req, res) => {

@@ -20,9 +20,18 @@ class NotificationScreen extends StatefulWidget {
   State<NotificationScreen> createState() => _NotificationScreenState();
 }
 
-enum _NotificationType { assigned, deadline, completed, updated }
+enum _NotificationType {
+  assigned,
+  deadline,
+  completed,
+  updated,
+  meeting,
+  vote,
+  document,
+  project,
+}
 
-enum _NotificationFilter { all, unread, task, deadline }
+enum _NotificationFilter { all, unread, task, workspace, project, deadline }
 
 class _TeamNotification {
   _TeamNotification({
@@ -46,6 +55,10 @@ class _TeamNotification {
     final type = switch ((j['type'] ?? '').toString().toLowerCase()) {
       'assigned' || 'assign' || 'task_assigned' => _NotificationType.assigned,
       'deadline' || 'due' || 'reminder' => _NotificationType.deadline,
+      'meeting' => _NotificationType.meeting,
+      'vote' => _NotificationType.vote,
+      'document' => _NotificationType.document,
+      'member_added' || 'project_joined' => _NotificationType.project,
       'completed' || 'done' || 'approved' => _NotificationType.completed,
       _ => _NotificationType.updated,
     };
@@ -102,7 +115,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
   void _syncBadge() {
     final notifier = widget.unread;
     if (notifier != null && notifier.value != _unreadCount) {
-      notifier.value = _unreadCount;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) notifier.value = _unreadCount;
+      });
     }
   }
 
@@ -155,15 +170,32 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
   List<_TeamNotification> get _filtered => switch (_selectedFilter) {
     _NotificationFilter.all => _notifications,
+    _NotificationFilter.project =>
+      _notifications.where((n) => n.type == _NotificationType.project).toList(),
     _NotificationFilter.unread =>
       _notifications.where((n) => !n.isRead).toList(),
     _NotificationFilter.task =>
       _notifications
-          .where((n) => n.type != _NotificationType.deadline)
+          .where(
+            (n) => {
+              _NotificationType.assigned,
+              _NotificationType.updated,
+              _NotificationType.completed,
+            }.contains(n.type),
+          )
           .toList(),
     _NotificationFilter.deadline =>
       _notifications
           .where((n) => n.type == _NotificationType.deadline)
+          .toList(),
+    _NotificationFilter.workspace =>
+      _notifications
+          .where(
+            (n) =>
+                n.type == _NotificationType.meeting ||
+                n.type == _NotificationType.vote ||
+                n.type == _NotificationType.document,
+          )
           .toList(),
   };
 
@@ -172,6 +204,10 @@ class _NotificationScreenState extends State<NotificationScreen> {
     _NotificationType.deadline => Icons.schedule_rounded,
     _NotificationType.completed => Icons.task_alt_rounded,
     _NotificationType.updated => Icons.sync_rounded,
+    _NotificationType.meeting => Icons.event_outlined,
+    _NotificationType.vote => Icons.poll_outlined,
+    _NotificationType.document => Icons.description_outlined,
+    _NotificationType.project => Icons.group_add_outlined,
   };
 
   Color _colorForType(_NotificationType t) => switch (t) {
@@ -179,6 +215,10 @@ class _NotificationScreenState extends State<NotificationScreen> {
     _NotificationType.deadline => const Color(0xFFE08A00),
     _NotificationType.completed => AppColors.green,
     _NotificationType.updated => AppColors.darkPurple,
+    _NotificationType.meeting => AppColors.purple,
+    _NotificationType.vote => AppColors.green,
+    _NotificationType.document => AppColors.darkPurple,
+    _NotificationType.project => AppColors.purple,
   };
 
   String _labelForType(_NotificationType t) => switch (t) {
@@ -186,6 +226,10 @@ class _NotificationScreenState extends State<NotificationScreen> {
     _NotificationType.deadline => 'Deadline',
     _NotificationType.completed => 'Hoàn thành',
     _NotificationType.updated => 'Cập nhật',
+    _NotificationType.meeting => 'Lịch họp',
+    _NotificationType.vote => 'Bình chọn',
+    _NotificationType.document => 'Tài liệu',
+    _NotificationType.project => 'Dự án',
   };
 
   Future<void> _markAsRead(_TeamNotification n) async {
@@ -386,6 +430,54 @@ class _NotificationScreenState extends State<NotificationScreen> {
     final items = _filtered;
     return Column(
       children: [
+        if (widget.session?.push.supported == true)
+          ListenableBuilder(
+            listenable: widget.session!.push,
+            builder: (context, _) {
+              final push = widget.session!.push;
+              return ListTile(
+                leading: Icon(
+                  push.enabled
+                      ? Icons.notifications_active_outlined
+                      : Icons.notifications_none,
+                ),
+                title: Text(
+                  push.enabled
+                      ? 'Thông báo đẩy đã bật'
+                      : 'Nhận thông báo khi đóng app',
+                ),
+                subtitle: push.error == null ? null : Text(push.error!),
+                trailing: TextButton(
+                  onPressed: push.busy
+                      ? null
+                      : () async {
+                          if (push.enabled) {
+                            try {
+                              await push.disable();
+                            } catch (_) {
+                              if (context.mounted) {
+                                showAppSnack(
+                                  context,
+                                  'Chưa tắt được thông báo. Vui lòng thử lại.',
+                                  error: true,
+                                );
+                              }
+                            }
+                          } else {
+                            await push.enable();
+                          }
+                        },
+                  child: Text(
+                    push.busy
+                        ? 'Đang bật…'
+                        : push.enabled
+                        ? 'Tắt'
+                        : 'Bật',
+                  ),
+                ),
+              );
+            },
+          ),
         if (_loadError != null)
           Container(
             width: double.infinity,
@@ -441,6 +533,8 @@ class _NotificationScreenState extends State<NotificationScreen> {
               _chip('Tất cả', _NotificationFilter.all),
               _chip('Chưa đọc', _NotificationFilter.unread),
               _chip('Công việc', _NotificationFilter.task),
+              _chip('Workspace', _NotificationFilter.workspace),
+              _chip('Dự án', _NotificationFilter.project),
               _chip('Deadline', _NotificationFilter.deadline),
             ],
           ),
