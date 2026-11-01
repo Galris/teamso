@@ -71,17 +71,19 @@ class _LoginScreenState extends State<LoginScreen> {
               TextFormField(
                 controller: username,
                 enabled: !busy,
-                keyboardType: TextInputType.emailAddress,
+                keyboardType: TextInputType.text,
                 textInputAction: TextInputAction.next,
-                autofillHints: const [AutofillHints.email],
+                autofillHints: const [AutofillHints.username],
                 autocorrect: false,
                 enableSuggestions: false,
                 onFieldSubmitted: (_) => passwordFocus.requestFocus(),
                 decoration: const InputDecoration(
-                  labelText: 'Email',
+                  labelText: 'Tên người dùng hoặc email',
                   prefixIcon: Icon(Icons.person_outline_rounded),
                 ),
-                validator: emailValidator,
+                validator: (value) => (value ?? '').contains('@')
+                    ? emailValidator(value)
+                    : usernameValidator(value),
               ),
               const SizedBox(height: 16),
               TextFormField(

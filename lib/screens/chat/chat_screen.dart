@@ -1,3 +1,5 @@
+import 'project_chat_list.dart';
+
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -68,6 +70,11 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _sending = false;
 
   String? _projectId;
+  int _chatGeneration = 0;
+  final Map<String, Map<String, dynamic>?> _previews = {};
+  final Map<String, StreamSubscription<Map<String, dynamic>?>> _previewSubs =
+      {};
+  final Set<String> _previewErrors = {};
   List<_ChatMessage> _messages = const [];
   bool _loadingMessages = true;
   String? _messagesError;
@@ -79,6 +86,8 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    TaskStore.instance.addListener(_syncRooms);
+    _syncRooms();
     _messageController.addListener(() {
       final has = _messageController.text.trim().isNotEmpty;
       if (has != _hasText) setState(() => _hasText = has);
@@ -87,7 +96,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    TaskStore.instance.removeListener(_syncRooms);
+    _chatGeneration++;
     _chatSub?.cancel();
+    for (final sub in _previewSubs.values) {
+      unawaited(sub.cancel());
+    }
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -107,31 +121,82 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  /// Chọn dự án (mặc định dự án gần nhất) rồi reconnect stream chat.
-  void _syncProject(List<Map<String, dynamic>> projects) {
-    if (projects.isEmpty) {
-      if (_projectId != null) {
-        _projectId = null;
-        _chatSub?.cancel();
-        _chatSub = null;
-        setState(() {
-          _messages = const [];
-          _loadingMessages = false;
-        });
-      }
-      return;
+  void _syncRooms() {
+    if (!mounted) return;
+    final session = widget.session;
+    final projects = TaskStore.instance.projectsForCurrentUser();
+    final ids = projects.map((p) => p['id'].toString()).toSet();
+    for (final id
+        in _previewSubs.keys.where((id) => !ids.contains(id)).toList()) {
+      unawaited(_previewSubs.remove(id)!.cancel());
+      _previews.remove(id);
+      _previewErrors.remove(id);
     }
-    final stillValid = projects.any((p) => p['id'] == _projectId);
-    if (!stillValid) _pickProject(projects.first['id'].toString());
+    if (_projectId != null && !ids.contains(_projectId)) {
+      _chatGeneration++;
+      _chatSub?.cancel();
+      _chatSub = null;
+      _projectId = null;
+      _messages = const [];
+      _messageController.clear();
+    }
+    if (session != null) {
+      final uid = session.auth.currentUserId;
+      for (final id in ids) {
+        _previewSubs.putIfAbsent(
+          id,
+          () => session.chat
+              .watchLatest(id)
+              .listen(
+                (message) {
+                  if (!mounted ||
+                      !_previewSubs.containsKey(id) ||
+                      session.auth.currentUserId != uid) {
+                    return;
+                  }
+                  setState(() {
+                    _previews[id] = message;
+                    _previewErrors.remove(id);
+                  });
+                },
+                onError: (Object error) {
+                  if (mounted && _previewSubs.containsKey(id)) {
+                    setState(() => _previewErrors.add(id));
+                  }
+                },
+              ),
+        );
+      }
+    }
+    setState(() {});
   }
 
   void _pickProject(String projectId) {
+    if (!TaskStore.instance.projectsForCurrentUser().any(
+      (p) => p['id'].toString() == projectId,
+    )) {
+      return;
+    }
     if (_projectId == projectId) return;
+    _messageController.clear();
     _projectId = projectId;
     _listen();
   }
 
+  void _leaveRoom() {
+    _chatGeneration++;
+    _chatSub?.cancel();
+    _chatSub = null;
+    setState(() {
+      _projectId = null;
+      _messages = const [];
+      _messagesError = null;
+    });
+    _messageController.clear();
+  }
+
   void _listen() {
+    final generation = ++_chatGeneration;
     _chatSub?.cancel();
     final session = widget.session;
     final projectId = _projectId;
@@ -150,7 +215,11 @@ class _ChatScreenState extends State<ChatScreen> {
         .watch(projectId)
         .listen(
           (rows) {
-            if (!mounted) return;
+            if (!mounted ||
+                generation != _chatGeneration ||
+                _projectId != projectId) {
+              return;
+            }
             setState(() {
               _messages = rows
                   .map(
@@ -161,11 +230,16 @@ class _ChatScreenState extends State<ChatScreen> {
                   )
                   .toList();
               _loadingMessages = false;
+              _messagesError = null;
             });
             WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
           },
           onError: (Object error) {
-            if (!mounted) return;
+            if (!mounted ||
+                generation != _chatGeneration ||
+                _projectId != projectId) {
+              return;
+            }
             setState(() {
               _loadingMessages = false;
               _messagesError = errorText(error);
@@ -177,11 +251,18 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _sendMessage() async {
     final content = _messageController.text.trim();
     final session = widget.session;
-    if (content.isEmpty || session == null || _projectId == null) return;
+    if (content.isEmpty || _sending || session == null || _projectId == null) {
+      return;
+    }
+    final projectId = _projectId!;
     setState(() => _sending = true);
     try {
-      await session.chat.send(_projectId!, content);
-      _messageController.clear();
+      await session.chat.send(projectId, content);
+      if (mounted &&
+          _projectId == projectId &&
+          _messageController.text.trim() == content) {
+        _messageController.clear();
+      }
     } catch (e) {
       if (mounted) showAppSnack(context, errorText(e), error: true);
     } finally {
@@ -326,87 +407,72 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _header(List<Map<String, dynamic>> projects) {
-    String? projectName;
-    for (final p in projects) {
-      if (p['id'] == _projectId) {
-        projectName = (p['name'] ?? 'Dự án').toString();
-        break;
-      }
-    }
+    final project = projects.firstWhere(
+      (p) => p['id'].toString() == _projectId,
+      orElse: () => {},
+    );
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: const EdgeInsets.fromLTRB(8, 8, 16, 10),
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
       child: Row(
         children: [
+          IconButton(
+            tooltip: 'Danh sách trò chuyện',
+            onPressed: _leaveRoom,
+            icon: const Icon(Icons.arrow_back_rounded),
+          ),
           const CircleAvatar(
             backgroundColor: AppColors.purpleSoft,
             child: Icon(Icons.groups_rounded, color: AppColors.darkPurple),
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: projects.isEmpty
-                ? Text(
-                    'Phòng chat nhóm',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  )
-                : DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      isExpanded: true,
-                      value: projects.any((p) => p['id'] == _projectId)
-                          ? _projectId
-                          : projects.first['id'].toString(),
-                      items: [
-                        for (final p in projects)
-                          DropdownMenuItem(
-                            value: p['id'].toString(),
-                            child: Text(
-                              (p['name'] ?? 'Dự án').toString(),
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                          ),
-                      ],
-                      onChanged: (id) {
-                        if (id != null) _pickProject(id);
-                      },
-                    ),
-                  ),
-          ),
-          if (projectName != null)
-            Text(
-              '${projects.length} dự án',
-              style: Theme.of(context).textTheme.bodySmall,
+            child: Text(
+              (project['name'] ?? 'Dự án').toString(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
             ),
+          ),
         ],
       ),
     );
   }
 
   @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: TaskStore.instance,
-      builder: (context, _) {
-        final projects = TaskStore.instance.projectsForCurrentUser();
-        _syncProject(projects);
-        return Column(
-          children: [
-            _header(projects),
-            Expanded(child: _body(projects.isEmpty)),
-            if (projects.isNotEmpty) _inputBar(),
-          ],
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: TaskStore.instance,
+    builder: (context, _) {
+      final store = TaskStore.instance;
+      final projects = store.projectsForCurrentUser();
+      if (_projectId == null) {
+        return ProjectChatList(
+          projects: projects,
+          previews: _previews,
+          previewErrors: _previewErrors,
+          currentUserId: widget.session?.auth.currentUserId ?? '',
+          loading: store.projectsLoading,
+          error: store.projectsError,
+          onSelected: _pickProject,
         );
-      },
-    );
-  }
+      }
+      return Column(
+        children: [
+          _header(projects),
+          Expanded(child: _body(false)),
+          _inputBar(),
+        ],
+      );
+    },
+  );
 
   Widget _body(bool noProjects) {
     if (noProjects) {
       return const EmptyState(
         icon: Icons.forum_outlined,
-        title: 'Chưa có dự án để trò chuyện',
+        title: 'Chưa có dự án',
         message: 'Tạo hoặc tham gia một dự án để mở phòng chat của nhóm.',
       );
     }

@@ -346,7 +346,7 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Widget _buildStatusTabs() {
+  TabBar _buildStatusTabs() {
     return TabBar(
       controller: _tabController,
       isScrollable: true,
@@ -651,10 +651,7 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
           surfaceTintColor: Colors.transparent,
           elevation: 0,
           toolbarHeight: 0,
-          bottom: PreferredSize(
-            preferredSize: const Size.fromHeight(48),
-            child: _buildStatusTabs(),
-          ),
+          bottom: _buildStatusTabs(),
         ),
         body: TabBarView(
           controller: _tabController,

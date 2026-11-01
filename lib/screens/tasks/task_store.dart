@@ -26,18 +26,28 @@ class TaskStore extends ChangeNotifier {
 
   /// Lỗi mới nhất từ một stream Firestore; null khi mọi thứ bình thường.
   String? lastError;
+  bool projectsLoading = true;
+  String? projectsError;
 
   String get currentUserId => AppServices.instance.auth.currentUser?.uid ?? '';
 
   void start() {
     if (currentUserId.isEmpty || _projectsSub != null) return;
+    projectsLoading = true;
+    projectsError = null;
     _projectsSub = _projectsService.watchMine().listen(
       _onProjects,
-      onError: _onStreamError,
+      onError: (Object error) {
+        projectsLoading = false;
+        projectsError = errorText(error);
+        _onStreamError(error);
+      },
     );
   }
 
   void _onProjects(List<Map<String, dynamic>> items) {
+    projectsLoading = false;
+    projectsError = null;
     lastError = null;
     final ids = items.map((p) => p['id'].toString()).toSet();
     projects
@@ -170,6 +180,8 @@ class TaskStore extends ChangeNotifier {
     }
     _memberSubs.clear();
     _taskSubs.clear();
+    projectsLoading = true;
+    projectsError = null;
     projects.clear();
     members.clear();
     tasks.clear();

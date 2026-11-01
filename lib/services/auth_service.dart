@@ -5,16 +5,22 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/user_profile.dart';
 import 'service_errors.dart';
+import 'api_client.dart' show ApiClient, ApiException;
 
 /// Firebase Authentication và hồ sơ gốc ở `users/{uid}`.
 /// Tài liệu claim username chỉ chứa UID, không lộ email.
 class AuthService {
-  AuthService({FirebaseAuth? auth, FirebaseFirestore? firestore})
-    : _auth = auth ?? FirebaseAuth.instance,
-      _db = firestore ?? FirebaseFirestore.instance;
+  AuthService({
+    FirebaseAuth? auth,
+    FirebaseFirestore? firestore,
+    ApiClient? api,
+  }) : _auth = auth ?? FirebaseAuth.instance,
+       _db = firestore ?? FirebaseFirestore.instance,
+       _api = api ?? ApiClient();
 
   final FirebaseAuth _auth;
   final FirebaseFirestore _db;
+  final ApiClient _api;
 
   User? get currentUser => _auth.currentUser;
   String get currentUserId => _auth.currentUser?.uid ?? '';
@@ -46,18 +52,36 @@ class AuthService {
     }
   }
 
-  /// Đăng nhập bằng email. Việc tra username -> email được cố ý bỏ qua ở client
-  /// để không lộ email của người khác; cần resolver tin cậy ở server.
-  Future<UserProfile> signIn(String email, String password) async {
-    final value = email.trim().toLowerCase();
-    if (!value.contains('@')) {
-      throw const ServiceException('Vui lòng đăng nhập bằng email.');
+  /// Username được xác minh mật khẩu tại backend trước khi nhận email.
+  /// Firebase Auth vẫn quản lý phiên native cho Firestore và các màn hình khác.
+  Future<UserProfile> signIn(String identifier, String password) async {
+    var email = identifier.trim().toLowerCase();
+    String? expectedUid;
+    if (!email.contains('@')) {
+      final response = await _wrap(
+        () => _api.request(
+          'POST',
+          '/auth/signin',
+          body: {'username': email, 'password': password},
+        ),
+      );
+      final profile = response['user'];
+      if (profile is! Map<String, dynamic> ||
+          profile['email'] is! String ||
+          profile['id'] is! String) {
+        throw const ServiceException(
+          'Máy chủ trả thông tin đăng nhập không hợp lệ.',
+        );
+      }
+      email = profile['email'] as String;
+      expectedUid = profile['id'] as String;
     }
     final credential = await _wrap(
-      () => _auth.signInWithEmailAndPassword(email: value, password: password),
+      () => _auth.signInWithEmailAndPassword(email: email, password: password),
     );
     final user = credential.user;
-    if (user == null) {
+    if (user == null || (expectedUid != null && user.uid != expectedUid)) {
+      await _auth.signOut();
       throw const ServiceException('Không thể đăng nhập. Vui lòng thử lại.');
     }
     return getProfile(user.uid);
@@ -190,6 +214,8 @@ class AuthService {
   Future<T> _wrap<T>(Future<T> Function() action) async {
     try {
       return await action();
+    } on ApiException catch (error) {
+      throw ServiceException(error.message);
     } on ServiceException {
       rethrow;
     } catch (error) {

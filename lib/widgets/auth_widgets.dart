@@ -7,12 +7,19 @@ const olive = AppColors.darkPurple;
 const ink = AppColors.textPrimary;
 
 class Frame extends StatelessWidget {
-  const Frame({super.key, required this.child, this.appBar});
+  const Frame({
+    super.key,
+    required this.child,
+    this.appBar,
+    this.bottomNavigationBar,
+  });
   final Widget child;
   final PreferredSizeWidget? appBar;
+  final Widget? bottomNavigationBar;
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: appBar,
+    bottomNavigationBar: bottomNavigationBar,
     body: Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 460),

@@ -61,3 +61,26 @@ test('change password verifies old password and requires a fresh login', async (
   await request(app).post('/api/auth/signin').send({ username, password: account.password }).expect(401);
   await request(app).post('/api/auth/signin').send({ username, password: 'New-pass-456' }).expect(200);
 });
+
+
+test('username signin supports native UID-only claims without exposing a public email resolver', async () => {
+  const name = `native_${Date.now()}`;
+  const email = `${name}@example.com`;
+  const uid = name;
+  try {
+    await auth.createUser({ uid, email, password: 'Native-test-123' });
+    await db.collection('users').doc(uid).set({username:name,email,displayName:'Native signup'});
+    await db.collection('usernames').doc(name).set({uid});
+    const signed = (await request(app).post('/api/auth/signin').send({ username:name.toUpperCase(),password:'Native-test-123' }).expect(200)).body;
+    assert.equal(signed.user.id,uid); assert.equal(signed.user.email,email);
+    const wrong = (await request(app).post('/api/auth/signin').send({username:name,password:'Wrong-pass-123'}).expect(401)).body;
+    assert.equal(wrong.user,undefined); assert.equal(wrong.email,undefined);
+    await db.collection('usernames').doc(`${name}_alias`).set({uid});
+    await request(app).post('/api/auth/signin').send({username:`${name}_alias`,password:'Native-test-123'}).expect(401);
+  } finally {
+    await db.collection('usernames').doc(name).delete();
+    await db.collection('usernames').doc(`${name}_alias`).delete();
+    await db.collection('users').doc(uid).delete();
+    await auth.deleteUser(uid).catch(()=>{});
+  }
+});

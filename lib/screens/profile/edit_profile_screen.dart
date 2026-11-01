@@ -15,7 +15,7 @@ class EditProfileScreen extends StatefulWidget {
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final form = GlobalKey<FormState>();
-  late final TextEditingController name, phone, bio, major, avatar;
+  late final TextEditingController name, phone, bio, major;
   bool busy = false;
   String? error;
   late final UserProfile original;
@@ -28,7 +28,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     phone = TextEditingController(text: u.phone);
     bio = TextEditingController(text: u.bio);
     major = TextEditingController(text: u.specialty);
-    avatar = TextEditingController(text: u.avatarUrl);
   }
 
   @override
@@ -37,7 +36,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     phone.dispose();
     bio.dispose();
     major.dispose();
-    avatar.dispose();
+
     super.dispose();
   }
 
@@ -69,12 +68,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               key: form,
               child: Column(
                 children: [
-                  Avatar(
-                    large: true,
-                    url: original.avatarUrl,
-                    name: original.name,
-                  ),
-                  const SizedBox(height: 12),
                   const Text(
                     'THÔNG TIN CÁ NHÂN',
                     style: TextStyle(
@@ -130,23 +123,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  TextFormField(
-                    controller: avatar,
-                    decoration: const InputDecoration(
-                      labelText: 'URL ảnh đại diện (HTTPS)',
-                    ),
-                    validator: (v) {
-                      final text = (v ?? '').trim();
-                      final uri = Uri.tryParse(text);
-                      return text.isEmpty ||
-                              uri != null &&
-                                  uri.scheme == 'https' &&
-                                  uri.host.isNotEmpty
-                          ? null
-                          : 'Nhập URL HTTPS hợp lệ.';
-                    },
-                  ),
-                  const SizedBox(height: 16),
                   if (error != null) InlineError(error!),
                   if (busy) const LinearProgressIndicator(),
                   PrimaryButton(
@@ -178,7 +154,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           phone: phone.text.trim(),
           specialty: major.text.trim(),
           bio: bio.text.trim(),
-          avatarUrl: avatar.text.trim(),
+          avatarUrl: original.avatarUrl,
           studentId: original.studentId,
           className: original.className,
           projects: original.projects,

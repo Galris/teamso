@@ -762,14 +762,30 @@ class ChatService extends _FirestoreService {
   CollectionReference<Map<String, dynamic>> _messagesOf(String projectId) =>
       _projects.doc(projectId).collection('messages');
 
-  /// Tin nhắn của một dự án, cập nhật realtime, tối đa 200 tin gần nhất.
+  /// Bản xem trước chỉ đọc tin gần nhất trong dự án, không tải cả lịch sử.
+  Stream<Map<String, dynamic>?> watchLatest(String projectId) =>
+      _messagesOf(projectId)
+          .orderBy('createdAt', descending: true)
+          .limit(1)
+          .snapshots()
+          .map(
+            (snapshot) =>
+                snapshot.docs.isEmpty ? null : _docMap(snapshot.docs.first),
+          );
+
+  /// Tin nhắn của một dự án, cập nhật realtime, tối đa 50 tin gần nhất.
   Stream<List<Map<String, dynamic>>> watch(String projectId) =>
-      _messagesOf(projectId).snapshots().map(
-        (snapshot) => snapshot.docs.map((doc) => _docMap(doc)).toList()
-          ..sort(
-            (a, b) => _stamp(a['createdAt']).compareTo(_stamp(b['createdAt'])),
-          ),
-      );
+      _messagesOf(projectId)
+          .orderBy('createdAt', descending: true)
+          .limit(50)
+          .snapshots()
+          .map(
+            (snapshot) => snapshot.docs.map((doc) => _docMap(doc)).toList()
+              ..sort(
+                (a, b) =>
+                    _stamp(a['createdAt']).compareTo(_stamp(b['createdAt'])),
+              ),
+          );
 
   Future<void> send(String projectId, String content) async {
     final uid = _requireUid();
