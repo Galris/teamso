@@ -1,7 +1,20 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../controllers/session_controller.dart';
+import '../../core/theme/app_colors.dart';
+import '../../services/service_errors.dart';
+import '../../widgets/app_widgets.dart';
+
+/// Thông báo đọc trực tiếp từ `users/{uid}/notifications` qua stream realtime.
 class NotificationScreen extends StatefulWidget {
-  const NotificationScreen({super.key});
+  const NotificationScreen({super.key, this.session, this.unread});
+  final SessionController? session;
+
+  /// Báo số thông báo chưa đọc lên MainScreen để hiện badge.
+  final ValueNotifier<int>? unread;
 
   @override
   State<NotificationScreen> createState() => _NotificationScreenState();
@@ -12,13 +25,6 @@ enum _NotificationType { assigned, deadline, completed, updated }
 enum _NotificationFilter { all, unread, task, deadline }
 
 class _TeamNotification {
-  final int id;
-  final String title;
-  final String description;
-  final String time;
-  final _NotificationType type;
-  bool isRead;
-
   _TeamNotification({
     required this.id,
     required this.title,
@@ -27,246 +33,464 @@ class _TeamNotification {
     required this.type,
     this.isRead = false,
   });
+  final String id;
+  final String title;
+  final String description;
+  final String time;
+  final _NotificationType type;
+  bool isRead;
+
+  static _TeamNotification? fromJson(Map<String, dynamic> j) {
+    final id = j['id']?.toString();
+    if (id == null || id.isEmpty) return null;
+    final type = switch ((j['type'] ?? '').toString().toLowerCase()) {
+      'assigned' || 'assign' || 'task_assigned' => _NotificationType.assigned,
+      'deadline' || 'due' || 'reminder' => _NotificationType.deadline,
+      'completed' || 'done' || 'approved' => _NotificationType.completed,
+      _ => _NotificationType.updated,
+    };
+    final created = _createdAt(j['createdAt']);
+    return _TeamNotification(
+      id: id,
+      title: (j['title'] ?? 'Thông báo').toString(),
+      description: (j['body'] ?? j['description'] ?? j['message'] ?? '')
+          .toString(),
+      time: created == null ? '' : _ago(created.toLocal()),
+      type: type,
+      isRead: j['read'] == true || j['isRead'] == true,
+    );
+  }
+
+  static DateTime? _createdAt(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return DateTime.tryParse(value?.toString() ?? '');
+  }
+
+  static String _ago(DateTime t) {
+    final d = DateTime.now().difference(t);
+    if (d.inMinutes < 1) return 'Vừa xong';
+    if (d.inMinutes < 60) return '${d.inMinutes} phút trước';
+    if (d.inHours < 24) return '${d.inHours} giờ trước';
+    if (d.inDays == 1) return 'Hôm qua';
+    if (d.inDays < 7) return '${d.inDays} ngày trước';
+    return '${t.day.toString().padLeft(2, '0')}/${t.month.toString().padLeft(2, '0')}/${t.year}';
+  }
 }
 
 class _NotificationScreenState extends State<NotificationScreen> {
   _NotificationFilter _selectedFilter = _NotificationFilter.all;
+  List<_TeamNotification> _notifications = [];
+  bool _loading = true;
+  String? _loadError;
+  StreamSubscription<List<Map<String, dynamic>>>? _subscription;
 
-  final List<_TeamNotification> _notifications = [
-    _TeamNotification(
-      id: 1,
-      title: 'Bạn được giao công việc mới',
-      description: 'Doanh đã giao cho bạn task "Xây dựng Workspace Hub".',
-      time: '5 phút trước',
-      type: _NotificationType.assigned,
-    ),
-    _TeamNotification(
-      id: 2,
-      title: 'Sắp đến hạn công việc',
-      description: 'Task "Hoàn thiện màn hình Chat" sắp đến deadline.',
-      time: '30 phút trước',
-      type: _NotificationType.deadline,
-    ),
-    _TeamNotification(
-      id: 3,
-      title: 'Công việc đã hoàn thành',
-      description: 'Nghi đã chuyển task "Thiết kế Login" sang Done.',
-      time: '1 giờ trước',
-      type: _NotificationType.completed,
-      isRead: true,
-    ),
-    _TeamNotification(
-      id: 4,
-      title: 'Trạng thái công việc thay đổi',
-      description: 'Vũ đã chuyển task "Task Board" sang In Progress.',
-      time: '2 giờ trước',
-      type: _NotificationType.updated,
-    ),
-    _TeamNotification(
-      id: 5,
-      title: 'Nhắc nhở deadline',
-      description: 'Task "Kiểm tra giao diện" cần hoàn thành sớm.',
-      time: 'Hôm qua',
-      type: _NotificationType.deadline,
-      isRead: true,
-    ),
-  ];
-
-  int get _unreadCount {
-    return _notifications.where((item) => !item.isRead).length;
+  @override
+  void initState() {
+    super.initState();
+    _listen();
   }
 
-  List<_TeamNotification> get _filteredNotifications {
-    switch (_selectedFilter) {
-      case _NotificationFilter.all:
-        return _notifications;
-      case _NotificationFilter.unread:
-        return _notifications.where((item) => !item.isRead).toList();
-      case _NotificationFilter.task:
-        return _notifications.where((item) {
-          return item.type == _NotificationType.assigned ||
-              item.type == _NotificationType.completed ||
-              item.type == _NotificationType.updated;
-        }).toList();
-      case _NotificationFilter.deadline:
-        return _notifications
-            .where((item) => item.type == _NotificationType.deadline)
-            .toList();
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
+
+  int get _unreadCount => _notifications.where((n) => !n.isRead).length;
+
+  void _syncBadge() {
+    final notifier = widget.unread;
+    if (notifier != null && notifier.value != _unreadCount) {
+      notifier.value = _unreadCount;
     }
   }
 
-  IconData _iconForType(_NotificationType type) {
-    switch (type) {
-      case _NotificationType.assigned:
-        return Icons.assignment_ind_outlined;
-      case _NotificationType.deadline:
-        return Icons.schedule_outlined;
-      case _NotificationType.completed:
-        return Icons.task_alt_outlined;
-      case _NotificationType.updated:
-        return Icons.sync_outlined;
-    }
-  }
-
-  String _labelForType(_NotificationType type) {
-    switch (type) {
-      case _NotificationType.assigned:
-        return 'Giao việc';
-      case _NotificationType.deadline:
-        return 'Deadline';
-      case _NotificationType.completed:
-        return 'Hoàn thành';
-      case _NotificationType.updated:
-        return 'Cập nhật';
-    }
-  }
-
-  void _markAsRead(_TeamNotification notification) {
-    if (!notification.isRead) {
+  /// Đăng ký lại stream; gọi khi mở màn hình và khi người dùng kéo làm mới.
+  void _listen() {
+    _subscription?.cancel();
+    _subscription = null;
+    final session = widget.session;
+    if (session == null) {
       setState(() {
-        notification.isRead = true;
+        _notifications = [];
+        _loading = false;
+        _loadError = 'Bạn chưa đăng nhập.';
       });
+      _syncBadge();
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
+    _subscription = session.notifications.watchMine().listen(
+      (rows) {
+        if (!mounted) return;
+        setState(() {
+          _notifications = rows
+              .map(_TeamNotification.fromJson)
+              .whereType<_TeamNotification>()
+              .toList();
+          _loading = false;
+          _loadError = null;
+        });
+        _syncBadge();
+      },
+      onError: (Object error) {
+        if (!mounted) return;
+        setState(() {
+          _loading = false;
+          _loadError = errorText(error);
+        });
+        _syncBadge();
+      },
+    );
+  }
+
+  Future<void> _refresh() async {
+    _listen();
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+  }
+
+  List<_TeamNotification> get _filtered => switch (_selectedFilter) {
+    _NotificationFilter.all => _notifications,
+    _NotificationFilter.unread =>
+      _notifications.where((n) => !n.isRead).toList(),
+    _NotificationFilter.task =>
+      _notifications
+          .where((n) => n.type != _NotificationType.deadline)
+          .toList(),
+    _NotificationFilter.deadline =>
+      _notifications
+          .where((n) => n.type == _NotificationType.deadline)
+          .toList(),
+  };
+
+  IconData _iconForType(_NotificationType t) => switch (t) {
+    _NotificationType.assigned => Icons.assignment_ind_outlined,
+    _NotificationType.deadline => Icons.schedule_rounded,
+    _NotificationType.completed => Icons.task_alt_rounded,
+    _NotificationType.updated => Icons.sync_rounded,
+  };
+
+  Color _colorForType(_NotificationType t) => switch (t) {
+    _NotificationType.assigned => AppColors.purple,
+    _NotificationType.deadline => const Color(0xFFE08A00),
+    _NotificationType.completed => AppColors.green,
+    _NotificationType.updated => AppColors.darkPurple,
+  };
+
+  String _labelForType(_NotificationType t) => switch (t) {
+    _NotificationType.assigned => 'Giao việc',
+    _NotificationType.deadline => 'Deadline',
+    _NotificationType.completed => 'Hoàn thành',
+    _NotificationType.updated => 'Cập nhật',
+  };
+
+  Future<void> _markAsRead(_TeamNotification n) async {
+    if (n.isRead) return;
+    // Stream realtime sẽ cập nhật lại danh sách sau khi Firestore ghi xong,
+    // nên chỉ optimistic-set để badge phản hồi ngay.
+    setState(() => n.isRead = true);
+    _syncBadge();
+    final session = widget.session;
+    if (session == null) return;
+    try {
+      await session.notifications.markRead(n.id);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => n.isRead = false);
+      _syncBadge();
+      showAppSnack(context, errorText(e), error: true);
     }
   }
 
-  void _markAllAsRead() {
+  Future<void> _markAllAsRead() async {
+    final session = widget.session;
+    if (session == null) return;
+    final previouslyUnread = _notifications.where((n) => !n.isRead).toList();
+    if (previouslyUnread.isEmpty) return;
     setState(() {
-      for (final notification in _notifications) {
-        notification.isRead = true;
+      for (final n in previouslyUnread) {
+        n.isRead = true;
       }
     });
+    _syncBadge();
+    try {
+      await session.notifications.markAllRead();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        for (final n in previouslyUnread) {
+          n.isRead = false;
+        }
+      });
+      _syncBadge();
+      showAppSnack(context, errorText(e), error: true);
+    }
   }
 
-  void _showNotificationDetail(_TeamNotification notification) {
-    _markAsRead(notification);
-
-    showDialog<void>(
+  void _showDetail(_TeamNotification n) {
+    _markAsRead(n);
+    showModalBottomSheet<void>(
       context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: Text(notification.title),
-          content: Column(
+      builder: (sheet) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(notification.description),
-              const SizedBox(height: 12),
-              Text('Loại: ${_labelForType(notification.type)}'),
-              Text('Thời gian: ${notification.time}'),
+              Row(
+                children: [
+                  _TypeBadge(
+                    icon: _iconForType(n.type),
+                    color: _colorForType(n.type),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      n.title,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Text(n.description),
+              const SizedBox(height: 10),
+              Text(
+                '${_labelForType(n.type)} · ${n.time}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(sheet),
+                  child: const Text('Đóng'),
+                ),
+              ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Đóng'),
-            ),
-          ],
-        );
-      },
+        ),
+      ),
     );
   }
 
-  Widget _buildFilterChip(String label, _NotificationFilter filter) {
-    return ChoiceChip(
+  Widget _chip(String label, _NotificationFilter f) => Padding(
+    padding: const EdgeInsets.only(right: 8),
+    child: ChoiceChip(
       label: Text(label),
-      selected: _selectedFilter == filter,
-      onSelected: (_) {
-        setState(() {
-          _selectedFilter = filter;
-        });
-      },
-    );
-  }
+      selected: _selectedFilter == f,
+      onSelected: (_) => setState(() => _selectedFilter = f),
+    ),
+  );
 
-  Widget _buildNotificationTile(_TeamNotification notification) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: ListTile(
-        onTap: () => _showNotificationDetail(notification),
-        leading: CircleAvatar(child: Icon(_iconForType(notification.type))),
-        title: Text(
-          notification.title,
-          style: TextStyle(
-            fontWeight: notification.isRead
-                ? FontWeight.normal
-                : FontWeight.bold,
+  Widget _tile(_TeamNotification n) {
+    final color = _colorForType(n.type);
+    return Dismissible(
+      key: ValueKey('notif-${n.id}'),
+      direction: n.isRead ? DismissDirection.none : DismissDirection.startToEnd,
+      confirmDismiss: (_) async {
+        await _markAsRead(n);
+        return false; // chỉ đánh dấu đã đọc, không xoá khỏi danh sách
+      },
+      background: Container(
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.only(left: 20),
+        decoration: BoxDecoration(
+          color: AppColors.successSoft,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.done_all_rounded, color: AppColors.green),
+            SizedBox(width: 8),
+            Text('Đã đọc', style: TextStyle(color: AppColors.green)),
+          ],
+        ),
+      ),
+      child: Material(
+        color: n.isRead ? Colors.white : AppColors.purpleSoft,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => _showDetail(n),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: n.isRead ? AppColors.border : Colors.transparent,
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _TypeBadge(icon: _iconForType(n.type), color: color),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        n.title,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: n.isRead
+                              ? FontWeight.w500
+                              : FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        n.description,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          height: 1.4,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '${_labelForType(n.type)} · ${n.time}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                if (!n.isRead)
+                  const Padding(
+                    padding: EdgeInsets.only(left: 8, top: 4),
+                    child: CircleAvatar(
+                      radius: 5,
+                      backgroundColor: AppColors.pink,
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 5),
-            Text(notification.description),
-            const SizedBox(height: 6),
-            Text(
-              '${_labelForType(notification.type)} • ${notification.time}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
-        trailing: notification.isRead
-            ? const Icon(Icons.check, size: 18)
-            : const Icon(Icons.circle, size: 12),
-        isThreeLine: true,
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final visibleNotifications = _filteredNotifications;
-
+    if (_loading) return const SkeletonList(count: 5, itemHeight: 88);
+    final items = _filtered;
     return Column(
       children: [
+        if (_loadError != null)
+          Container(
+            width: double.infinity,
+            color: const Color(0xFFFFF6DD),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                const Icon(Icons.info_outline_rounded, size: 16),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _loadError!,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _listen,
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(0, 32),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                  child: const Text('Thử lại'),
+                ),
+              ],
+            ),
+          ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          padding: const EdgeInsets.fromLTRB(16, 12, 8, 0),
           child: Row(
             children: [
               Expanded(
                 child: Text(
-                  'Chưa đọc: $_unreadCount',
+                  _unreadCount == 0
+                      ? 'Bạn đã đọc hết thông báo'
+                      : '$_unreadCount chưa đọc',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
               ),
-              TextButton(
+              TextButton.icon(
                 onPressed: _unreadCount == 0 ? null : _markAllAsRead,
-                child: const Text('Đánh dấu tất cả đã đọc'),
+                icon: const Icon(Icons.done_all_rounded, size: 18),
+                label: const Text('Đọc tất cả'),
               ),
             ],
           ),
         ),
-
         SizedBox(
-          height: 52,
+          height: 48,
           child: ListView(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             children: [
-              _buildFilterChip('Tất cả', _NotificationFilter.all),
-              const SizedBox(width: 8),
-              _buildFilterChip('Chưa đọc', _NotificationFilter.unread),
-              const SizedBox(width: 8),
-              _buildFilterChip('Công việc', _NotificationFilter.task),
-              const SizedBox(width: 8),
-              _buildFilterChip('Deadline', _NotificationFilter.deadline),
+              _chip('Tất cả', _NotificationFilter.all),
+              _chip('Chưa đọc', _NotificationFilter.unread),
+              _chip('Công việc', _NotificationFilter.task),
+              _chip('Deadline', _NotificationFilter.deadline),
             ],
           ),
         ),
-
-        const Divider(height: 1),
-
         Expanded(
-          child: visibleNotifications.isEmpty
-              ? const Center(child: Text('Không có thông báo nào.'))
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: visibleNotifications.length,
-                  itemBuilder: (context, index) {
-                    return _buildNotificationTile(visibleNotifications[index]);
-                  },
-                ),
+          child: RefreshIndicator(
+            onRefresh: _refresh,
+            child: items.isEmpty
+                ? ListView(
+                    // ListView để kéo-làm-mới vẫn hoạt động khi danh sách rỗng
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      SizedBox(
+                        height: 360,
+                        child: EmptyState(
+                          icon: Icons.notifications_off_outlined,
+                          title: _selectedFilter == _NotificationFilter.unread
+                              ? 'Không còn thông báo chưa đọc'
+                              : 'Chưa có thông báo nào',
+                          message: 'Kéo xuống để làm mới.',
+                        ),
+                      ),
+                    ],
+                  )
+                : ListView.separated(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                    itemCount: items.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
+                    itemBuilder: (_, i) => _tile(items[i]),
+                  ),
+          ),
         ),
       ],
     );
   }
+}
+
+class _TypeBadge extends StatelessWidget {
+  const _TypeBadge({required this.icon, required this.color});
+  final IconData icon;
+  final Color color;
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 40,
+    height: 40,
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.14),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Icon(icon, color: color, size: 22),
+  );
 }

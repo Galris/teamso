@@ -1,10 +1,19 @@
 import 'package:flutter/material.dart';
-import '../../controllers/projects_controller.dart';
-import '../../core/theme/app_colors.dart';
+
+import 'task_store.dart';
+
+const Color teamUpGreen = Color(0xFF439751);
+const Color teamUpPurple = Color(0xFF867CB3);
+const Color teamUpPink = Color(0xFFF472B6);
+const Color teamUpYellow = Color(0xFFFACC15);
+const Color teamUpDarkPurple = Color(0xFF4D4379);
+
+const Color _background = Color(0xFFF7F7FB);
+const Color _textPrimary = Color(0xFF282638);
+const Color _textSecondary = Color(0xFF858397);
 
 class TaskBoardScreen extends StatefulWidget {
-  const TaskBoardScreen({super.key, required this.projects});
-  final ProjectsController projects;
+  const TaskBoardScreen({super.key});
 
   @override
   State<TaskBoardScreen> createState() => _TaskBoardScreenState();
@@ -12,8 +21,7 @@ class TaskBoardScreen extends StatefulWidget {
 
 class _TaskBoardScreenState extends State<TaskBoardScreen>
     with SingleTickerProviderStateMixin {
-  ProjectsController get _data => widget.projects;
-  bool _busy = false;
+  final TaskStore _store = TaskStore.instance;
 
   late final TabController _tabController;
 
@@ -56,11 +64,11 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
     List<Map<String, dynamic>> result;
 
     if (status == 'Cần bạn duyệt') {
-      result = _data.tasksToReview();
+      result = _store.tasksToReview();
     } else {
-      result = _data
+      result = _store
           .tasksForCurrentUser()
-          .where((task) => _data.taskStatus(task) == status)
+          .where((task) => task['status'] == status)
           .toList();
     }
 
@@ -107,12 +115,12 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
 
   int _countForStatus(String status) {
     if (status == 'Cần bạn duyệt') {
-      return _data.tasksToReview().length;
+      return _store.tasksToReview().length;
     }
 
-    return _data
+    return _store
         .tasksForCurrentUser()
-        .where((task) => _data.taskStatus(task) == status)
+        .where((task) => task['status'] == status)
         .length;
   }
 
@@ -134,16 +142,16 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
   Color _statusColor(String status) {
     switch (status) {
       case 'Hoàn thành':
-        return AppColors.green;
+        return teamUpGreen;
       case 'Đang làm':
         return const Color(0xFF4285F4);
       case 'Chờ duyệt':
       case 'Cần bạn duyệt':
         return const Color(0xFFDB9B18);
       case 'Cần sửa':
-        return AppColors.pink;
+        return teamUpPink;
       default:
-        return AppColors.textSecondary;
+        return _textSecondary;
     }
   }
 
@@ -159,48 +167,33 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
 
     switch (project?['tag']?.toString()) {
       case 'Mobile':
-        return AppColors.green;
+        return teamUpGreen;
       case 'Marketing':
-        return AppColors.pink;
+        return teamUpPink;
       case 'Research':
         return const Color(0xFFE1B32C);
       default:
-        return AppColors.purple;
+        return teamUpPurple;
     }
   }
 
-  /// Chạy một thao tác API, chặn bấm trùng và báo kết quả bằng snackbar.
-  Future<void> _run(
-    Future<void> Function() action,
-    String successMessage,
-  ) async {
-    if (_busy) return;
-    setState(() => _busy = true);
+  Future<void> _startTask(Map<String, dynamic> task) async {
     try {
-      await action();
-      _showMessage(successMessage);
+      await _store.startTask(task['id'].toString());
+      setState(() {});
+      _showMessage('Đã chuyển công việc sang Đang làm.');
     } catch (e) {
       _showMessage(e.toString());
-    } finally {
-      if (mounted) setState(() => _busy = false);
     }
   }
-
-  Future<void> _startTask(Map<String, dynamic> task) => _run(
-    () => _data.startTask(task),
-    'Đã chuyển công việc sang Đang làm.',
-  );
 
   Future<void> _submitTask(Map<String, dynamic> task) async {
     final controller = TextEditingController(
       text: task['outputLink']?.toString() ?? '',
     );
 
-    // Cùng quy ước với ProjectDetailScreen: mặc định yêu cầu đầu ra.
-    final outputType = task['outputType']?.toString() ?? 'docs';
-    final outputRequired = task['outputRequired'] != false;
-    final isLeader =
-        _data.roleInProject(task['projectId'].toString()) == 'Leader';
+    final outputType = task['outputType']?.toString() ?? 'none';
+    final outputRequired = task['outputRequired'] == true;
 
     final result = await showDialog<String?>(
       context: context,
@@ -218,10 +211,7 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
                   outputRequired
                       ? 'Công việc này yêu cầu đầu ra.'
                       : 'Bạn có thể bổ sung đường dẫn kết quả.',
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 13,
-                  ),
+                  style: const TextStyle(color: _textSecondary, fontSize: 13),
                 ),
                 const SizedBox(height: 8),
                 TextField(
@@ -270,11 +260,18 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
       return;
     }
 
-    if (!mounted) return;
-    await _run(
-      () => _data.submitTask(task, result),
-      isLeader ? 'Đã hoàn thành công việc.' : 'Đã gửi công việc cho Leader duyệt.',
-    );
+    try {
+      await _store.submitTask(task['id'].toString(), outputLink: result);
+
+      setState(() {});
+      _showMessage(
+        _store.roleInProject(task['projectId'].toString()) == 'Leader'
+            ? 'Đã hoàn thành công việc.'
+            : 'Đã gửi công việc cho Leader duyệt.',
+      );
+    } catch (e) {
+      _showMessage(e.toString());
+    }
   }
 
   Future<void> _reviewTask(
@@ -282,7 +279,13 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
     required bool approve,
   }) async {
     if (approve) {
-      await _run(() => _data.approveTask(task), 'Đã duyệt công việc.');
+      try {
+        await _store.approveTask(task['id'].toString());
+        setState(() {});
+        _showMessage('Đã duyệt công việc.');
+      } catch (e) {
+        _showMessage(e.toString());
+      }
       return;
     }
 
@@ -310,9 +313,8 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
               child: const Text('Hủy'),
             ),
             FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(
-                controller.text.trim(),
-              ),
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(controller.text.trim()),
               child: const Text('Gửi yêu cầu'),
             ),
           ],
@@ -326,10 +328,13 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
       return;
     }
 
-    await _run(
-      () => _data.requestChanges(task, comment),
-      'Đã yêu cầu chỉnh sửa công việc.',
-    );
+    try {
+      await _store.requestTaskChanges(task['id'].toString(), comment: comment);
+      setState(() {});
+      _showMessage('Đã yêu cầu chỉnh sửa công việc.');
+    } catch (e) {
+      _showMessage(e.toString());
+    }
   }
 
   void _showMessage(String message) {
@@ -337,9 +342,8 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   Widget _buildStatusTabs() {
@@ -347,9 +351,9 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
       controller: _tabController,
       isScrollable: true,
       tabAlignment: TabAlignment.start,
-      labelColor: AppColors.darkPurple,
-      unselectedLabelColor: AppColors.textSecondary,
-      indicatorColor: AppColors.purple,
+      labelColor: teamUpDarkPurple,
+      unselectedLabelColor: _textSecondary,
+      indicatorColor: teamUpPurple,
       indicatorWeight: 3,
       dividerColor: const Color(0xFFECEBF2),
       tabs: _statuses.map((status) {
@@ -361,13 +365,10 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
               Text(status),
               const SizedBox(width: 6),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 7,
-                  vertical: 3,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                 decoration: BoxDecoration(
                   color: _tabController.index == _statuses.indexOf(status)
-                      ? AppColors.purple.withValues(alpha: 0.15)
+                      ? teamUpPurple.withValues(alpha: 0.15)
                       : const Color(0xFFF0EFF5),
                   borderRadius: BorderRadius.circular(20),
                 ),
@@ -391,21 +392,19 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
 
     if (tasks.isEmpty) {
       return RefreshIndicator(
-        onRefresh: _data.load,
+        onRefresh: () async {
+          setState(() {});
+        },
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           children: const [
             SizedBox(height: 110),
-            Icon(
-              Icons.task_alt_rounded,
-              size: 52,
-              color: Color(0xFFD0CEDC),
-            ),
+            Icon(Icons.task_alt_rounded, size: 52, color: Color(0xFFD0CEDC)),
             SizedBox(height: 12),
             Center(
               child: Text(
                 'Không có công việc trong mục này',
-                style: TextStyle(color: AppColors.textSecondary),
+                style: TextStyle(color: _textSecondary),
               ),
             ),
           ],
@@ -414,7 +413,9 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
     }
 
     return RefreshIndicator(
-      onRefresh: _data.load,
+      onRefresh: () async {
+        setState(() {});
+      },
       child: ListView.separated(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
         physics: const AlwaysScrollableScrollPhysics(),
@@ -427,33 +428,29 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
     );
   }
 
-  Widget _buildTaskCard(
-    Map<String, dynamic> task,
-    String currentTab,
-  ) {
+  Widget _buildTaskCard(Map<String, dynamic> task, String currentTab) {
     final projectId = task['projectId']?.toString() ?? '';
-    final project = _data.projectById(projectId);
+    final project = _store.projectById(projectId);
     final projectColor = _projectColor(project);
-    final status = _data.taskStatus(task);
+    final status = task['status']?.toString() ?? 'Cần làm';
     final statusColor = _statusColor(status);
-    final isMyTask = _data.assigneeId(task) == _data.userId;
-    final isLeader = _data.roleInProject(projectId) == 'Leader';
+    final assigneeId = task['assigneeId']?.toString() ?? '';
+    final isMyTask = assigneeId == _store.currentUserId;
+    final isLeader = _store.roleInProject(projectId) == 'Leader';
     final isReviewTab = currentTab == 'Cần bạn duyệt';
 
-    final canStart = !_busy && isMyTask && (status == 'Cần làm' || status == 'Cần sửa');
+    final canStart = isMyTask && (status == 'Cần làm' || status == 'Cần sửa');
 
-    final canSubmit = !_busy && isMyTask && (status == 'Đang làm' || status == 'Cần sửa');
+    final canSubmit = isMyTask && status == 'Đang làm';
 
-    final canReview = !_busy && isLeader && status == 'Chờ duyệt';
+    final canReview = isLeader && status == 'Chờ duyệt';
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: const Color(0xFFECEBF2),
-        ),
+        border: Border.all(color: const Color(0xFFECEBF2)),
         boxShadow: const [
           BoxShadow(
             color: Color(0x08000000),
@@ -475,16 +472,13 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
                     fontSize: 15,
                     height: 1.35,
                     fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
+                    color: _textPrimary,
                   ),
                 ),
               ),
               const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 9,
-                  vertical: 5,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                 decoration: BoxDecoration(
                   color: statusColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(20),
@@ -508,10 +502,7 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
             runSpacing: 7,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 9,
-                  vertical: 5,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                 decoration: BoxDecoration(
                   color: projectColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
@@ -545,30 +536,24 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
               const Icon(
                 Icons.person_outline_rounded,
                 size: 17,
-                color: AppColors.textSecondary,
+                color: _textSecondary,
               ),
               const SizedBox(width: 5),
               Expanded(
                 child: Text(
-                  _data.assigneeName(task),
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                  ),
+                  _store.memberName(assigneeId),
+                  style: const TextStyle(color: _textSecondary, fontSize: 12),
                 ),
               ),
               const Icon(
                 Icons.calendar_today_outlined,
                 size: 14,
-                color: AppColors.textSecondary,
+                color: _textSecondary,
               ),
               const SizedBox(width: 5),
               Text(
                 _formatDate(task['dueDate']?.toString()),
-                style: const TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 12,
-                ),
+                style: const TextStyle(color: _textSecondary, fontSize: 12),
               ),
             ],
           ),
@@ -580,15 +565,12 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
               width: double.infinity,
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: AppColors.pink.withValues(alpha: 0.08),
+                color: teamUpPink.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Text(
                 'Nhận xét: ${task['reviewComment']}',
-                style: const TextStyle(
-                  color: Color(0xFFB94B83),
-                  fontSize: 12,
-                ),
+                style: const TextStyle(color: Color(0xFFB94B83), fontSize: 12),
               ),
             ),
           ],
@@ -598,11 +580,7 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
             const SizedBox(height: 10),
             Row(
               children: [
-                const Icon(
-                  Icons.link_rounded,
-                  color: AppColors.purple,
-                  size: 17,
-                ),
+                const Icon(Icons.link_rounded, color: teamUpPurple, size: 17),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
@@ -610,7 +588,7 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      color: AppColors.darkPurple,
+                      color: teamUpDarkPurple,
                       fontSize: 12,
                     ),
                   ),
@@ -627,48 +605,30 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
               spacing: 8,
               runSpacing: 8,
               children: [
-                if (canStart && status == 'Cần làm')
+                if (canStart)
                   OutlinedButton.icon(
                     onPressed: () => _startTask(task),
-                    icon: const Icon(
-                      Icons.play_arrow_rounded,
-                      size: 18,
+                    icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                    label: Text(
+                      status == 'Cần sửa' ? 'Tiếp tục chỉnh sửa' : 'Bắt đầu',
                     ),
-                    label: const Text('Bắt đầu'),
                   ),
                 if (canSubmit)
                   FilledButton.icon(
                     onPressed: () => _submitTask(task),
-                    icon: const Icon(
-                      Icons.send_rounded,
-                      size: 16,
-                    ),
+                    icon: const Icon(Icons.send_rounded, size: 16),
                     label: const Text('Gửi kết quả'),
                   ),
                 if (canReview && isReviewTab) ...[
                   FilledButton.icon(
-                    onPressed: () => _reviewTask(
-                      task,
-                      approve: true,
-                    ),
-                    icon: const Icon(
-                      Icons.check_rounded,
-                      size: 17,
-                    ),
+                    onPressed: () => _reviewTask(task, approve: true),
+                    icon: const Icon(Icons.check_rounded, size: 17),
                     label: const Text('Duyệt'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.green,
-                    ),
+                    style: FilledButton.styleFrom(backgroundColor: teamUpGreen),
                   ),
                   OutlinedButton.icon(
-                    onPressed: () => _reviewTask(
-                      task,
-                      approve: false,
-                    ),
-                    icon: const Icon(
-                      Icons.edit_note_rounded,
-                      size: 17,
-                    ),
+                    onPressed: () => _reviewTask(task, approve: false),
+                    icon: const Icon(Icons.edit_note_rounded, size: 17),
                     label: const Text('Yêu cầu sửa'),
                   ),
                 ],
@@ -680,73 +640,27 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
     );
   }
 
-  Widget _buildBody() {
-    if (!_data.loaded) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_data.error != null && _data.projects.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.cloud_off_outlined, size: 44),
-              const SizedBox(height: 12),
-              Text(_data.error!, textAlign: TextAlign.center),
-              TextButton.icon(
-                onPressed: _data.load,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Thử lại'),
-              ),
-            ],
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: _store,
+      builder: (context, _) => Scaffold(
+        backgroundColor: _background,
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          toolbarHeight: 0,
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(48),
+            child: _buildStatusTabs(),
           ),
         ),
-      );
-    }
-    if (_data.projects.isEmpty) {
-      return RefreshIndicator(
-        onRefresh: _data.load,
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          children: const [
-            SizedBox(height: 110),
-            Icon(Icons.folder_open_rounded, size: 52, color: Color(0xFFD0CEDC)),
-            SizedBox(height: 12),
-            Center(child: Text('Chưa có dự án')),
-            SizedBox(height: 4),
-            Center(
-              child: Text(
-                'Tham gia dự án để nhận công việc.',
-                style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-    return TabBarView(
-      controller: _tabController,
-      children: _statuses.map(_buildTaskList).toList(),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: _data,
-    builder: (context, _) => Scaffold(
-      backgroundColor: AppColors.pageBackground,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        toolbarHeight: 0,
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(48),
-          child: _buildStatusTabs(),
+        body: TabBarView(
+          controller: _tabController,
+          children: _statuses.map(_buildTaskList).toList(),
         ),
       ),
-      body: _buildBody(),
-    ),
-  );
+    );
+  }
 }

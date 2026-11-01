@@ -1,74 +1,107 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/user_profile.dart';
-import '../services/api_client.dart';
+import '../services/app_services.dart';
 import '../services/auth_service.dart';
-import '../services/user_service.dart';
+import '../services/service_errors.dart';
+import '../services/team_services.dart';
+import '../screens/tasks/task_store.dart';
 
+/// Trạng thái phiên làm việc: đồng bộ với FirebaseAuth, giữ hồ sơ `users/{uid}`
+/// và khởi động/dừng TaskStore theo người dùng hiện tại.
 class SessionController extends ChangeNotifier {
-  SessionController({ApiClient? client}) : api = client ?? ApiClient() {
-    auth = AuthService(api);
-    users = UserService(api);
-    api.onUnauthorized = () {
-      user = null;
-      notifyListeners();
-    };
+  SessionController({AppServices? services})
+    : _services = services ?? AppServices.instance {
+    _authSubscription = auth.authStateChanges.listen(_handleAuthState);
   }
-  final ApiClient api;
-  late final AuthService auth;
-  late final UserService users;
+
+  final AppServices _services;
+
+  AuthService get auth => _services.accounts;
+  ProjectService get projects => _services.projects;
+  TaskService get tasks => _services.tasks;
+  ChatService get chat => _services.chat;
+  WorkspaceService get workspace => _services.workspace;
+  NotificationService get notifications => _services.notifications;
+
+  StreamSubscription<User?>? _authSubscription;
+  int _authEpoch = 0;
+
   UserProfile? user;
   bool initializing = true;
   String? startupError;
 
-  /// Thông báo một lần hiển thị ở màn đăng nhập (vd. sau khi đổi mật khẩu).
-  String? notice;
+  Future<void> _handleAuthState(User? firebaseUser) async {
+    // Chỉ kết quả của sự kiện mới nhất được áp dụng, tránh ghi đè trạng thái
+    // khi đăng nhập/đăng xuất liên tiếp.
+    final epoch = ++_authEpoch;
+    try {
+      UserProfile? profile;
+      if (firebaseUser == null) {
+        await TaskStore.instance.stop();
+      } else {
+        profile = await auth.getProfile(firebaseUser.uid);
+      }
+      if (epoch != _authEpoch) return;
+      user = profile;
+      if (firebaseUser != null) TaskStore.instance.start();
+      startupError = null;
+    } catch (error) {
+      if (epoch != _authEpoch) return;
+      startupError = errorText(error);
+    }
+    initializing = false;
+    notifyListeners();
+  }
+
   Future<void> restore() async {
     initializing = true;
     startupError = null;
     notifyListeners();
     try {
-      if (await api.store.read() != null) user = await users.me();
-    } catch (e) {
-      if (e is! ApiException || e.status != 401) startupError = e.toString();
-    } finally {
+      user = await auth.restoreUser();
+      if (user != null) TaskStore.instance.start();
       initializing = false;
-      notifyListeners();
+    } catch (error) {
+      startupError = errorText(error);
+      initializing = false;
     }
+    notifyListeners();
   }
 
-  Future<void> signIn(String username, String password) async {
-    user = await auth.signIn(username, password);
+  Future<void> signIn(String email, String password) async {
+    user = await auth.signIn(email, password);
+    TaskStore.instance.start();
     startupError = null;
-    notice = null;
+    notifyListeners();
+  }
+
+  Future<void> signUp(Map<String, dynamic> fields) async {
+    user = await auth.signUp(fields);
+    TaskStore.instance.start();
+    startupError = null;
     notifyListeners();
   }
 
   Future<void> update(UserProfile profile) async {
-    final generation = api.epoch;
-    final updated = await users.update(profile);
-    if (generation == api.epoch) {
-      user = updated;
-      notifyListeners();
-    }
+    user = await auth.updateProfile(profile);
+    notifyListeners();
   }
 
-  /// Đổi mật khẩu xong server thu hồi mọi phiên nên app quay về đăng nhập.
-  Future<void> changePassword(String current, String next) async {
-    notice = 'Đổi mật khẩu thành công. Hãy đăng nhập lại bằng mật khẩu mới.';
-    try {
-      await users.changePassword(current, next);
-    } catch (_) {
-      notice = null;
-      rethrow;
-    }
+  Future<void> signOut() async {
+    await auth.signOut();
+    await TaskStore.instance.stop();
+    user = null;
+    startupError = null;
+    notifyListeners();
   }
 
-  Future<void> signOut() => auth.signOut();
   @override
   void dispose() {
-    api.onUnauthorized = null;
-    api.close();
+    _authSubscription?.cancel();
     super.dispose();
   }
 }

@@ -16,7 +16,7 @@ class UserProject {
   final String status;
 
   factory UserProject.fromJson(Map<String, dynamic> json) => UserProject(
-    id: _text(json['id'] ?? json['_id']),
+    id: _text(json['uid'] ?? json['id'] ?? json['_id']),
     name: _text(json['name'], 'Dự án chưa đặt tên'),
     role: _text(json['role'], 'Thành viên'),
     specificTask: _optionalText(json['specificTask']),
@@ -30,25 +30,6 @@ class UserProject {
     'status': status,
   };
 }
-
-// Only used when the API has not implemented the projects field yet.
-// Never written back to the backend or used to authorize project access.
-const previewProjects = <UserProject>[
-  UserProject(
-    id: 'preview-teamup',
-    name: 'TeamUp – Đồ án Mobile',
-    role: 'Flutter Dev',
-    specificTask: 'Phụ trách đăng nhập, đăng ký và hồ sơ cá nhân.',
-    status: 'Đang thực hiện',
-  ),
-  UserProject(
-    id: 'preview-study',
-    name: 'Study Together',
-    role: 'UI/UX Designer',
-    specificTask: 'Thiết kế giao diện và trải nghiệm học tập nhóm.',
-    status: 'Hoàn thành',
-  ),
-];
 
 String _text(dynamic value, [String fallback = '']) =>
     value is String && value.trim().isNotEmpty ? value.trim() : fallback;
@@ -84,7 +65,7 @@ class UserProfile {
     final rawProjects = json['projects'];
     final hasProjects = rawProjects is List;
     return UserProfile(
-      id: _text(json['id'] ?? json['_id']),
+      id: _text(json['uid'] ?? json['id'] ?? json['_id']),
       username: _text(json['username']),
       name: _text(json['displayName']),
       email: _text(json['email']),
@@ -104,9 +85,9 @@ class UserProfile {
             ? rawProjects.whereType<Map<String, dynamic>>().map(
                 UserProject.fromJson,
               )
-            : fallback?.projects ?? previewProjects,
+            : fallback?.projects ?? const <UserProject>[],
       ),
-      projectsAreMock: hasProjects ? false : fallback?.projectsAreMock ?? true,
+      projectsAreMock: hasProjects ? false : fallback?.projectsAreMock ?? false,
     );
   }
 
@@ -116,5 +97,6 @@ class UserProfile {
     'major': specialty,
     'phone': phone,
     'bio': bio,
+    'avatarUrl': avatarUrl,
   };
 }

@@ -1,20 +1,34 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+import '../../services/app_services.dart';
+import '../../services/service_errors.dart';
+import '../../services/team_services.dart';
 
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/services.dart';
 
-import '../../core/theme/app_colors.dart';
-import '../../services/api_client.dart';
+const Color teamUpGreen = Color(0xFF439751);
+const Color teamUpPurple = Color(0xFF867CB3);
+const Color teamUpPink = Color(0xFFF472B6);
+const Color teamUpYellow = Color(0xFFFACC15);
+const Color teamUpDarkPurple = Color(0xFF4D4379);
 
-/// Project detail screen backed by ApiClient.
+const Color _background = Color(0xFFF7F7FB);
+const Color _textPrimary = Color(0xFF282638);
+const Color _textSecondary = Color(0xFF858397);
+
+/// Project detail screen backed by realtime Cloud Firestore streams.
 class ProjectDetailScreen extends StatefulWidget {
   final String projectId;
-  final ApiClient? apiClient;
   final String? currentUserId;
 
   const ProjectDetailScreen({
     super.key,
     required this.projectId,
-    this.apiClient,
     this.currentUserId,
   });
 
@@ -25,7 +39,12 @@ class ProjectDetailScreen extends StatefulWidget {
 class _ProjectDetailScreenState extends State<ProjectDetailScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
-  late final ApiClient _api;
+  // Dùng chung bộ Service của toàn app thay vì tạo instance riêng ở màn hình.
+  final ProjectService _projectService = AppServices.instance.projects;
+  final TaskService _taskService = AppServices.instance.tasks;
+  StreamSubscription? _projectSubscription;
+  StreamSubscription? _taskSubscription;
+  StreamSubscription? _memberSubscription;
 
   bool _loading = true;
   bool _busy = false;
@@ -36,26 +55,81 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
 
   String get _currentUserId => _currentUserIdFromProject();
 
-  // Adjust these paths to match your backend's actual routes.
-  String get _projectPath =>
-      '/projects/${Uri.encodeComponent(widget.projectId)}';
-  String get _tasksPath => '$_projectPath/tasks';
-
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _api = widget.apiClient ?? ApiClient();
-    _loadPage();
+    _listenRealtime();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
-    if (widget.apiClient == null) {
-      _api.close();
-    }
+    _cancelSubscriptions();
     super.dispose();
+  }
+
+  void _cancelSubscriptions() {
+    _projectSubscription?.cancel();
+    _taskSubscription?.cancel();
+    _memberSubscription?.cancel();
+    _projectSubscription = null;
+    _taskSubscription = null;
+    _memberSubscription = null;
+  }
+
+  /// Stream realtime là nguồn dữ liệu duy nhất cho cả ba Pane (project, tasks,
+  /// members), nên màn hình không gọi thêm `get`/`list` trùng logic truy vấn.
+  void _listenRealtime() {
+    _projectSubscription = _projectService
+        .watch(widget.projectId)
+        .listen(
+          (project) {
+            if (!mounted) return;
+            if (project == null) {
+              setState(() {
+                _loading = false;
+                _error = 'Không tìm thấy dự án.';
+              });
+              return;
+            }
+            setState(() {
+              _project = project;
+              _loading = false;
+              _error = null;
+            });
+          },
+          onError: (Object error) {
+            if (mounted) {
+              setState(() {
+                _loading = false;
+                _error = errorText(error);
+              });
+            }
+          },
+        );
+    _taskSubscription = _taskService
+        .watch(projectId: widget.projectId)
+        .listen(
+          (rows) {
+            if (!mounted) return;
+            setState(() => _tasks = rows);
+          },
+          onError: (Object error) {
+            if (mounted) setState(() => _error = errorText(error));
+          },
+        );
+    _memberSubscription = _projectService
+        .watchMembers(widget.projectId)
+        .listen(
+          (rows) {
+            if (!mounted) return;
+            setState(() => _members = rows);
+          },
+          onError: (Object error) {
+            if (mounted) setState(() => _error = errorText(error));
+          },
+        );
   }
 
   Map<String, dynamic>? _asMap(dynamic value) {
@@ -66,13 +140,6 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
       return value.map((key, value) => MapEntry('$key', value));
     }
     return null;
-  }
-
-  List<Map<String, dynamic>> _asMapList(dynamic value) {
-    if (value is! List) {
-      return [];
-    }
-    return value.map(_asMap).whereType<Map<String, dynamic>>().toList();
   }
 
   dynamic _firstValue(Map<String, dynamic> json, List<String> keys) {
@@ -90,104 +157,24 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
     String fallback = '',
   }) {
     final value = _firstValue(json, keys);
+    if (value is Timestamp) return value.toDate().toIso8601String();
+    if (value is DateTime) return value.toIso8601String();
     return value == null ? fallback : value.toString();
   }
 
-  List<Map<String, dynamic>> _extractList(
-    Map<String, dynamic> response,
-    List<String> keys,
-  ) {
-    for (final key in keys) {
-      final direct = _asMapList(response[key]);
-      if (direct.isNotEmpty || response[key] is List) {
-        return direct;
-      }
-    }
-    final data = _asMap(response['data']);
-    if (data != null) {
-      for (final key in keys) {
-        final nested = _asMapList(data[key]);
-        if (nested.isNotEmpty || data[key] is List) {
-          return nested;
-        }
-      }
-    }
-    return [];
-  }
-
+  /// Kéo-làm-mới và nút thử lại: dựng lại các subscription realtime. Stream đã
+  /// phát dữ liệu mới nhất nên không cần gọi `get`/`list` trùng ở đây.
   Future<void> _loadPage({bool showLoading = true}) async {
-    if (showLoading && mounted) {
+    if (!mounted) return;
+    if (showLoading) {
       setState(() {
         _loading = true;
         _error = null;
       });
     }
-
-    try {
-      final results = await Future.wait([
-        _api.request('GET', _projectPath, protected: true),
-        _api.request('GET', _tasksPath, protected: true),
-      ]);
-
-      final projectResponse = results[0];
-      final taskResponse = results[1];
-      final projectData = _asMap(projectResponse['data']);
-      final project =
-          _asMap(projectResponse['project']) ??
-          _asMap(projectData?['project']) ??
-          projectData ??
-          projectResponse;
-      final taskList = _extractList(taskResponse, const [
-        'tasks',
-        'items',
-        'results',
-        'data',
-      ]);
-
-      final rawMembers = _firstValue(project, const [
-        'members',
-        'projectMembers',
-      ]);
-      final members = _asMapList(rawMembers);
-      final sortedTasks = [...taskList];
-      sortedTasks.sort((a, b) {
-        final aDate = DateTime.tryParse(
-          _stringValue(a, const ['dueDate', 'due_date', 'deadline']),
-        );
-        final bDate = DateTime.tryParse(
-          _stringValue(b, const ['dueDate', 'due_date', 'deadline']),
-        );
-        if (aDate == null && bDate == null) {
-          return 0;
-        }
-        if (aDate == null) {
-          return 1;
-        }
-        if (bDate == null) {
-          return -1;
-        }
-        return aDate.compareTo(bDate);
-      });
-
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _project = project;
-        _tasks = sortedTasks;
-        _members = members;
-        _loading = false;
-        _error = null;
-      });
-    } catch (e) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _loading = false;
-        _error = e.toString();
-      });
-    }
+    _cancelSubscriptions();
+    _listenRealtime();
+    await Future<void>.delayed(const Duration(milliseconds: 400));
   }
 
   String get _role {
@@ -198,7 +185,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
       'currentUserRole',
     ]);
     if (role.isNotEmpty) {
-      return role;
+      return role.toLowerCase() == 'leader' ? 'Leader' : 'Member';
     }
     final leaderId = _stringValue(project, const [
       'leaderId',
@@ -211,8 +198,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
     return 'Member';
   }
 
-  bool get _isLeader =>
-      const ['leader', 'owner', 'admin'].contains(_role.toLowerCase());
+  bool get _isLeader => _role.toLowerCase() == 'leader';
 
   String _taskId(Map<String, dynamic> task) =>
       _stringValue(task, const ['id', '_id', 'taskId', 'task_id']);
@@ -258,24 +244,24 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
     }
   }
 
-  String _assigneeId(Map<String, dynamic> task) => _stringValue(task, const [
-    'assigneeId',
-    'assignee_id',
-    'assignedTo',
-    'userId',
-    'user_id',
-  ]);
+  String _assigneeId(Map<String, dynamic> task) {
+    final ids = task['assigneeIds'];
+    if (ids is List && ids.isNotEmpty) return ids.first.toString();
+    return _stringValue(task, const [
+      'assigneeId',
+      'assignee_id',
+      'assignedTo',
+      'userId',
+      'user_id',
+    ]);
+  }
 
   String _currentUserIdFromProject() {
     final supplied = widget.currentUserId?.trim() ?? '';
     if (supplied.isNotEmpty) {
       return supplied;
     }
-    return _stringValue(_project ?? {}, const [
-      'currentUserId',
-      'meId',
-      'userId',
-    ]);
+    return FirebaseAuth.instance.currentUser?.uid ?? '';
   }
 
   String _memberName(dynamic memberOrId) {
@@ -283,6 +269,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
       final member = _asMap(memberOrId) ?? {};
       return _stringValue(member, const [
         'name',
+        'displayName',
         'fullName',
         'full_name',
         'username',
@@ -291,7 +278,9 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
     }
     final id = memberOrId?.toString() ?? '';
     final found = _members.where(
-      (m) => _stringValue(m, const ['id', '_id', 'userId', 'user_id']) == id,
+      (m) =>
+          _stringValue(m, const ['uid', 'id', '_id', 'userId', 'user_id']) ==
+          id,
     );
     if (found.isNotEmpty) {
       return _memberName(found.first);
@@ -308,7 +297,9 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
 
   bool _isMyTask(Map<String, dynamic> task) {
     final userId = _currentUserIdFromProject();
-    return userId.isNotEmpty && _assigneeId(task) == userId;
+    final ids = task['assigneeIds'];
+    return userId.isNotEmpty &&
+        (ids is List ? ids.contains(userId) : _assigneeId(task) == userId);
   }
 
   int _countStatus(String status) =>
@@ -317,15 +308,15 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
   Color _statusColor(String status) {
     switch (status) {
       case 'Hoàn thành':
-        return AppColors.green;
+        return teamUpGreen;
       case 'Đang làm':
         return const Color(0xFF4285F4);
       case 'Chờ duyệt':
         return const Color(0xFFDB9B18);
       case 'Cần sửa':
-        return AppColors.pink;
+        return teamUpPink;
       default:
-        return AppColors.textSecondary;
+        return _textSecondary;
     }
   }
 
@@ -336,13 +327,13 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
     }
     switch (_stringValue(project, const ['tag', 'category']).toLowerCase()) {
       case 'mobile':
-        return AppColors.green;
+        return teamUpGreen;
       case 'marketing':
-        return AppColors.pink;
+        return teamUpPink;
       case 'research':
         return const Color(0xFFE1B32C);
       default:
-        return AppColors.darkPurple;
+        return teamUpDarkPurple;
     }
   }
 
@@ -369,7 +360,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
   }
 
   Future<void> _runAction(
-    Future<Map<String, dynamic>> Function() action, {
+    Future<void> Function() action, {
     required String successMessage,
   }) async {
     if (_busy) {
@@ -378,13 +369,14 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
     setState(() => _busy = true);
     try {
       await action();
-      await _loadPage(showLoading: false);
+      // Stream realtime tự cập nhật project/tasks/members sau khi ghi,
+      // nên không cần gọi lại truy vấn ở đây.
       if (mounted) {
         _message(successMessage);
       }
     } catch (e) {
       if (mounted) {
-        _message(e.toString());
+        _message(errorText(e));
       }
     } finally {
       if (mounted) {
@@ -608,7 +600,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
       return;
     }
     await _runAction(
-      () => _api.request('POST', _tasksPath, body: result, protected: true),
+      () => _taskService.create(widget.projectId, result),
       successMessage: 'Đã tạo công việc.',
     );
   }
@@ -620,12 +612,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
       return;
     }
     await _runAction(
-      () => _api.request(
-        'PATCH',
-        '/tasks/${Uri.encodeComponent(id)}/start',
-        body: const {},
-        protected: true,
-      ),
+      () => _taskService.transition(widget.projectId, id, 'in_progress'),
       successMessage: 'Đã chuyển công việc sang Đang làm.',
     );
   }
@@ -726,11 +713,11 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
       return;
     }
     await _runAction(
-      () => _api.request(
-        'POST',
-        '/tasks/${Uri.encodeComponent(id)}/submit',
-        body: {'outputLink': result},
-        protected: true,
+      () => _taskService.transition(
+        widget.projectId,
+        id,
+        _isLeader && _isMyTask(task) ? 'completed' : 'pending_review',
+        outputLink: result,
       ),
       successMessage: _isLeader
           ? 'Đã cập nhật kết quả công việc.'
@@ -785,11 +772,11 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
       return;
     }
     await _runAction(
-      () => _api.request(
-        'POST',
-        '/tasks/${Uri.encodeComponent(id)}/${approve ? 'approve' : 'request-changes'}',
-        body: approve ? const {} : {'comment': comment},
-        protected: true,
+      () => _taskService.transition(
+        widget.projectId,
+        id,
+        approve ? 'completed' : 'revision_required',
+        comment: comment,
       ),
       successMessage: approve
           ? 'Đã duyệt công việc.'
@@ -840,13 +827,206 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
             const SizedBox(height: 5),
             Text(
               label,
-              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+              style: const TextStyle(fontSize: 12, color: _textSecondary),
             ),
           ],
         ),
       ),
     );
   }
+
+  Future<void> _addMemberByUsername() async {
+    final controller = TextEditingController();
+    final username = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Thêm thành viên'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Username'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, controller.text.trim()),
+            child: const Text('Thêm'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (username == null || username.isEmpty || !mounted) return;
+    await _runAction(
+      () => _projectService.addMemberByUsername(widget.projectId, username),
+      successMessage: 'Đã thêm thành viên.',
+    );
+  }
+
+  Future<void> _removeMember(String uid) async {
+    await _runAction(
+      () => _projectService.removeMember(widget.projectId, uid),
+      successMessage: 'Đã xóa thành viên khỏi dự án.',
+    );
+  }
+
+  /// Leader chỉnh tên/mô tả/thẻ của dự án.
+  Future<void> _editProject() async {
+    final project = _project;
+    if (project == null) return;
+    final nameController = TextEditingController(
+      text: _stringValue(project, const ['name'], fallback: 'Dự án'),
+    );
+    final descriptionController = TextEditingController(
+      text: _stringValue(project, const ['description']),
+    );
+    final tagController = TextEditingController(
+      text: _stringValue(project, const ['tag']),
+    );
+    final formKey = GlobalKey<FormState>();
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cập nhật dự án'),
+        content: SizedBox(
+          width: 420,
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Tên dự án *',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) => (v ?? '').trim().isEmpty
+                      ? 'Tên không được để trống'
+                      : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: descriptionController,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Mô tả',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: tagController,
+                  decoration: const InputDecoration(
+                    labelText: 'Thẻ / danh mục',
+                    hintText: 'mobile, marketing, research...',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (!formKey.currentState!.validate()) return;
+              Navigator.pop(dialogContext, true);
+            },
+            child: const Text('Lưu'),
+          ),
+        ],
+      ),
+    );
+    final values = saved == true
+        ? {
+            'name': nameController.text.trim(),
+            'description': descriptionController.text.trim(),
+            'tag': tagController.text.trim(),
+          }
+        : null;
+    nameController.dispose();
+    descriptionController.dispose();
+    tagController.dispose();
+    if (values == null || !mounted) return;
+    await _runAction(
+      () => _projectService.update(widget.projectId, values),
+      successMessage: 'Đã cập nhật dự án.',
+    );
+  }
+
+  Future<void> _leaveProject() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Rời dự án'),
+        content: const Text('Bạn chắc chắn muốn rời khỏi dự án này?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Rời dự án'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _runAction(
+      () => _projectService.leave(widget.projectId),
+      successMessage: 'Bạn đã rời dự án.',
+    );
+    if (mounted) Navigator.maybePop(context);
+  }
+
+  Future<void> _deleteProject() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Xóa dự án'),
+        content: const Text(
+          'Toàn bộ công việc, thành viên và dữ liệu của dự án sẽ bị xóa vĩnh viễn. '
+          'Bạn chắc chắn chứ?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(backgroundColor: teamUpPink),
+            child: const Text('Xóa dự án'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _runAction(
+      () => _projectService.delete(widget.projectId),
+      successMessage: 'Đã xóa dự án.',
+    );
+    if (mounted) Navigator.maybePop(context);
+  }
+
+  void _onMenuSelected(String value) => switch (value) {
+    'edit' => _editProject(),
+    'leave' => _leaveProject(),
+    'delete' => _deleteProject(),
+    _ => null,
+  };
 
   Widget _buildOverview(Map<String, dynamic> project) {
     final color = _projectColor(project);
@@ -894,7 +1074,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
                         style: const TextStyle(
                           fontSize: 19,
                           fontWeight: FontWeight.w800,
-                          color: AppColors.textPrimary,
+                          color: _textPrimary,
                         ),
                       ),
                       const SizedBox(height: 6),
@@ -911,7 +1091,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
                         const SizedBox(height: 6),
                         Text(
                           _stringValue(project, const ['description']),
-                          style: const TextStyle(color: AppColors.textSecondary),
+                          style: const TextStyle(color: _textSecondary),
                         ),
                       ],
                     ],
@@ -920,19 +1100,42 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
               ],
             ),
           ),
+          if (_stringValue(project, const ['joinCode']).isNotEmpty) ...[
+            const SizedBox(height: 14),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.qr_code_2_rounded),
+              title: const Text('Mã tham gia dự án'),
+              subtitle: SelectableText(
+                _stringValue(project, const ['joinCode']),
+              ),
+              trailing: IconButton(
+                tooltip: 'Sao chép mã',
+                icon: const Icon(Icons.copy_rounded),
+                onPressed: () {
+                  Clipboard.setData(
+                    ClipboardData(
+                      text: _stringValue(project, const ['joinCode']),
+                    ),
+                  );
+                  _message('Đã sao chép mã tham gia.');
+                },
+              ),
+            ),
+          ],
           const SizedBox(height: 24),
           const Text(
             'Tiến độ công việc',
             style: TextStyle(
               fontSize: 17,
               fontWeight: FontWeight.w800,
-              color: AppColors.textPrimary,
+              color: _textPrimary,
             ),
           ),
           const SizedBox(height: 12),
           Row(
             children: [
-              _statCard('Cần làm', _countStatus('Cần làm'), AppColors.textSecondary),
+              _statCard('Cần làm', _countStatus('Cần làm'), _textSecondary),
               const SizedBox(width: 10),
               _statCard(
                 'Đang làm',
@@ -950,7 +1153,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
                 const Color(0xFFDB9B18),
               ),
               const SizedBox(width: 10),
-              _statCard('Hoàn thành', _countStatus('Hoàn thành'), AppColors.green),
+              _statCard('Hoàn thành', _countStatus('Hoàn thành'), teamUpGreen),
             ],
           ),
           const SizedBox(height: 24),
@@ -962,14 +1165,20 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
                   style: TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
+                    color: _textPrimary,
                   ),
                 ),
               ),
               Text(
                 '${_members.length} người',
-                style: const TextStyle(color: AppColors.textSecondary),
+                style: const TextStyle(color: _textSecondary),
               ),
+              if (_isLeader)
+                IconButton(
+                  tooltip: 'Thêm thành viên bằng username',
+                  onPressed: _busy ? null : _addMemberByUsername,
+                  icon: const Icon(Icons.person_add_alt_1_rounded),
+                ),
             ],
           ),
           const SizedBox(height: 8),
@@ -977,13 +1186,14 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
               child: Text(
-                'API chưa trả về danh sách thành viên.',
-                style: TextStyle(color: AppColors.textSecondary),
+                'Chưa có thông tin thành viên.',
+                style: TextStyle(color: _textSecondary),
               ),
             )
           else
             ..._members.map((member) {
               final id = _stringValue(member, const [
+                'uid',
                 'id',
                 '_id',
                 'userId',
@@ -1009,13 +1219,27 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
                 subtitle: id.isEmpty
                     ? null
                     : Text(id, style: const TextStyle(fontSize: 11)),
-                trailing: Text(
-                  isLeader ? 'Leader' : 'Member',
-                  style: TextStyle(
-                    color: isLeader ? AppColors.darkPurple : AppColors.textSecondary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      isLeader ? 'Leader' : 'Member',
+                      style: TextStyle(
+                        color: isLeader ? teamUpDarkPurple : _textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (_isLeader && !isLeader && id.isNotEmpty)
+                      IconButton(
+                        tooltip: 'Xóa thành viên',
+                        icon: const Icon(
+                          Icons.person_remove_outlined,
+                          size: 18,
+                        ),
+                        onPressed: _busy ? null : () => _removeMember(id),
+                      ),
+                  ],
                 ),
               );
             }),
@@ -1037,7 +1261,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
             Center(
               child: Text(
                 'Chưa có công việc nào',
-                style: TextStyle(color: AppColors.textSecondary),
+                style: TextStyle(color: _textSecondary),
               ),
             ),
           ],
@@ -1080,8 +1304,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
       'deadline',
     ]);
     final mine = _isMyTask(task);
-    final canStart = mine && status == 'Cần làm';
-    final canSubmit = mine && (status == 'Đang làm' || status == 'Cần sửa');
+    final canStart = mine && (status == 'Cần làm' || status == 'Cần sửa');
+    final canSubmit = mine && status == 'Đang làm';
     final canReview = _isLeader && status == 'Chờ duyệt';
 
     return Container(
@@ -1103,7 +1327,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
+                    color: _textPrimary,
                   ),
                 ),
               ),
@@ -1129,7 +1353,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
             const SizedBox(height: 8),
             Text(
               _stringValue(task, const ['description']),
-              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+              style: const TextStyle(color: _textSecondary, fontSize: 13),
             ),
           ],
           const SizedBox(height: 12),
@@ -1138,24 +1362,24 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
               const Icon(
                 Icons.person_outline_rounded,
                 size: 17,
-                color: AppColors.textSecondary,
+                color: _textSecondary,
               ),
               const SizedBox(width: 5),
               Expanded(
                 child: Text(
                   _memberName(assigneeId),
-                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                  style: const TextStyle(fontSize: 12, color: _textSecondary),
                 ),
               ),
               const Icon(
                 Icons.calendar_today_outlined,
                 size: 14,
-                color: AppColors.textSecondary,
+                color: _textSecondary,
               ),
               const SizedBox(width: 5),
               Text(
                 _formatDate(dueDate),
-                style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                style: const TextStyle(fontSize: 12, color: _textSecondary),
               ),
             ],
           ),
@@ -1165,7 +1389,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
               width: double.infinity,
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: AppColors.pink.withValues(alpha: 0.08),
+                color: teamUpPink.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Text(
@@ -1178,7 +1402,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
             const SizedBox(height: 10),
             Row(
               children: [
-                const Icon(Icons.link_rounded, size: 17, color: AppColors.purple),
+                const Icon(Icons.link_rounded, size: 17, color: teamUpPurple),
                 const SizedBox(width: 6),
                 Expanded(
                   child: InkWell(
@@ -1188,7 +1412,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        color: AppColors.darkPurple,
+                        color: teamUpDarkPurple,
                         fontSize: 12,
                         decoration: TextDecoration.underline,
                       ),
@@ -1199,7 +1423,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
                   tooltip: 'Mở link',
                   onPressed: () => _openLink(outputLink),
                   icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                  color: AppColors.darkPurple,
+                  color: teamUpDarkPurple,
                 ),
               ],
             ),
@@ -1216,7 +1440,9 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
                   OutlinedButton.icon(
                     onPressed: _busy ? null : () => _startTask(task),
                     icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                    label: const Text('Bắt đầu'),
+                    label: Text(
+                      status == 'Cần sửa' ? 'Tiếp tục chỉnh sửa' : 'Bắt đầu',
+                    ),
                   ),
                 if (canSubmit)
                   FilledButton.icon(
@@ -1231,7 +1457,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
                         : () => _reviewTask(task, approve: true),
                     icon: const Icon(Icons.check_rounded, size: 17),
                     label: const Text('Duyệt'),
-                    style: FilledButton.styleFrom(backgroundColor: AppColors.green),
+                    style: FilledButton.styleFrom(backgroundColor: teamUpGreen),
                   ),
                   OutlinedButton.icon(
                     onPressed: _busy
@@ -1259,16 +1485,16 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
             'title',
             'projectName',
           ], fallback: 'Chi tiết dự án');
-    final color = project == null ? AppColors.darkPurple : _projectColor(project);
+    final color = project == null ? teamUpDarkPurple : _projectColor(project);
 
     return Scaffold(
-      backgroundColor: AppColors.pageBackground,
+      backgroundColor: _background,
       appBar: AppBar(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: AppColors.textPrimary),
+          icon: const Icon(Icons.arrow_back_rounded, color: _textPrimary),
           onPressed: () => Navigator.maybePop(context),
         ),
         title: Text(
@@ -1276,16 +1502,58 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(
-            color: AppColors.textPrimary,
+            color: _textPrimary,
             fontWeight: FontWeight.w800,
             fontSize: 18,
           ),
         ),
         actions: [
+          if (_project != null)
+            PopupMenuButton<String>(
+              tooltip: 'Tùy chọn dự án',
+              enabled: !_busy,
+              icon: const Icon(Icons.more_vert_rounded, color: _textPrimary),
+              onSelected: _onMenuSelected,
+              itemBuilder: (_) => [
+                if (_isLeader)
+                  const PopupMenuItem(
+                    value: 'edit',
+                    child: ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.edit_outlined),
+                      title: Text('Sửa dự án'),
+                    ),
+                  ),
+                if (!_isLeader)
+                  const PopupMenuItem(
+                    value: 'leave',
+                    child: ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.logout_rounded),
+                      title: Text('Rời dự án'),
+                    ),
+                  ),
+                if (_isLeader)
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        Icons.delete_outline_rounded,
+                        color: teamUpPink,
+                      ),
+                      title: Text('Xóa dự án'),
+                    ),
+                  ),
+              ],
+            ),
           IconButton(
             tooltip: 'Tải lại',
             onPressed: _loading ? null : _loadPage,
-            icon: const Icon(Icons.refresh_rounded, color: AppColors.textPrimary),
+            icon: const Icon(Icons.refresh_rounded, color: _textPrimary),
           ),
           if (_isLeader)
             IconButton(
@@ -1293,14 +1561,14 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
               onPressed: _busy ? null : _showCreateTaskDialog,
               icon: const Icon(
                 Icons.add_circle_outline_rounded,
-                color: AppColors.darkPurple,
+                color: teamUpDarkPurple,
               ),
             ),
         ],
         bottom: TabBar(
           controller: _tabController,
           labelColor: color,
-          unselectedLabelColor: AppColors.textSecondary,
+          unselectedLabelColor: _textSecondary,
           indicatorColor: color,
           indicatorWeight: 3,
           tabs: const [
@@ -1311,7 +1579,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
       ),
       body: _loading
           ? const Center(
-              child: CircularProgressIndicator(color: AppColors.darkPurple),
+              child: CircularProgressIndicator(color: teamUpDarkPurple),
             )
           : _error != null
           ? Center(
@@ -1323,7 +1591,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
                     const Icon(
                       Icons.cloud_off_rounded,
                       size: 48,
-                      color: AppColors.textSecondary,
+                      color: _textSecondary,
                     ),
                     const SizedBox(height: 12),
                     const Text(
@@ -1337,7 +1605,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
                     Text(
                       _error!,
                       textAlign: TextAlign.center,
-                      style: const TextStyle(color: AppColors.textSecondary),
+                      style: const TextStyle(color: _textSecondary),
                     ),
                     const SizedBox(height: 16),
                     FilledButton.icon(
@@ -1364,7 +1632,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
                     right: 0,
                     child: LinearProgressIndicator(
                       minHeight: 2,
-                      color: AppColors.darkPurple,
+                      color: teamUpDarkPurple,
                     ),
                   ),
               ],
@@ -1372,7 +1640,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
       floatingActionButton: !_loading && _error == null && _isLeader
           ? FloatingActionButton.extended(
               onPressed: _busy ? null : _showCreateTaskDialog,
-              backgroundColor: AppColors.darkPurple,
+              backgroundColor: teamUpDarkPurple,
               foregroundColor: Colors.white,
               icon: const Icon(Icons.add_rounded),
               label: const Text('Tạo công việc'),

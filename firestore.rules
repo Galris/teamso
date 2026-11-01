@@ -1,0 +1,173 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isSelf(uid) { return signedIn() && request.auth.uid == uid; }
+    function projectPath(pid) { return /databases/$(database)/documents/projects/$(pid); }
+    function memberPath(pid, uid) { return /databases/$(database)/documents/projects/$(pid)/members/$(uid); }
+    function isMember(pid) { return signedIn() && exists(memberPath(pid, request.auth.uid)); }
+    function isLeader(pid) { return isMember(pid) && get(memberPath(pid, request.auth.uid)).data.role == 'leader'; }
+
+    match /users/{uid} {
+      allow create: if isSelf(uid)
+        && request.resource.data.keys().hasOnly(['username','displayName','email','avatarUrl','major','phone','bio','createdAt','updatedAt'])
+        && request.resource.data.username is string
+        && request.resource.data.displayName is string
+        && request.resource.data.email == request.auth.token.email;
+      allow read: if isSelf(uid);
+      allow update: if isSelf(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName','major','phone','bio','avatarUrl','updatedAt']);
+      allow delete: if false;
+
+      match /projectMemberships/{projectId} {
+        allow read: if isSelf(uid);
+        allow create: if (isSelf(uid) || isLeader(projectId))
+          && existsAfter(memberPath(projectId, uid))
+          && getAfter(memberPath(projectId, uid)).data.role == request.resource.data.role
+          && request.resource.data.role in ['leader','member'];
+        allow update: if false;
+        allow delete: if (isSelf(uid) || isLeader(projectId)) && !existsAfter(memberPath(projectId, uid));
+      }
+
+      // Hộp thông báo cá nhân: chỉ chủ tài khoản đọc và đánh dấu đã đọc.
+      // Việc tạo thông báo do Cloud Functions (Admin) thực hiện, nên client
+      // không được tự tạo hay xóa ở đây.
+      match /notifications/{notificationId} {
+        allow read: if isSelf(uid);
+        allow update: if isSelf(uid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+          && request.resource.data.read == true;
+        allow create, delete: if false;
+      }
+    }
+
+    // Public username claim contains UID only; email is never exposed here.
+    match /usernames/{username} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn() && request.resource.data.keys().hasOnly(['uid','createdAt'])
+        && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /projects/{projectId} {
+      allow create: if signedIn()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.keys().hasOnly(['name','description','tag','coverUrl','ownerId','joinCode','status','startDate','endDate','createdAt','updatedAt'])
+        && getAfter(memberPath(projectId, request.auth.uid)).data.role == 'leader';
+      allow read: if isMember(projectId);
+      allow update: if isLeader(projectId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','description','tag','coverUrl','status','startDate','endDate','updatedAt'])
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.joinCode == resource.data.joinCode;
+      allow delete: if isLeader(projectId) && resource.data.ownerId == request.auth.uid;
+
+      match /members/{uid} {
+        allow read: if isMember(projectId);
+        allow create: if request.resource.data.keys().hasOnly(['role','joinedAt'])
+          && ((isLeader(projectId) && request.resource.data.role == 'member')
+            || (signedIn() && uid == request.auth.uid && request.resource.data.role == 'leader'
+              && getAfter(projectPath(projectId)).data.ownerId == request.auth.uid))
+          && existsAfter(/databases/$(database)/documents/users/$(uid)/projectMemberships/$(projectId));
+        allow update: if false;
+        allow delete: if (isLeader(projectId) || isSelf(uid))
+          && uid != get(projectPath(projectId)).data.ownerId
+          && exists(/databases/$(database)/documents/users/$(uid)/projectMemberships/$(projectId));
+      }
+
+      match /tasks/{taskId} {
+        allow read: if isMember(projectId);
+        allow create: if isLeader(projectId)
+          && request.resource.data.keys().hasOnly(['title','description','status','priority','createdBy','assigneeIds','startDate','dueDate','checklist','attachmentUrls','createdAt','updatedAt','completedAt','outputType','outputRequired','outputLink','reviewComment'])
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.status == 'todo'
+          && request.resource.data.assigneeIds is list;
+        allow update: if (isLeader(projectId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title','description','status','priority','assigneeIds','startDate','dueDate','checklist','attachmentUrls','updatedAt','completedAt','reviewComment','outputLink'])
+          && (request.resource.data.status == resource.data.status
+            || (resource.data.status == 'pending_review' && request.resource.data.status in ['completed','revision_required'])
+            || (request.auth.uid in resource.data.assigneeIds && ((resource.data.status == 'todo' && request.resource.data.status == 'in_progress')
+              || (resource.data.status == 'in_progress' && request.resource.data.status in ['pending_review','completed'])
+              || (resource.data.status == 'revision_required' && request.resource.data.status == 'in_progress'))))) || (isMember(projectId)
+          && request.auth.uid in resource.data.assigneeIds
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','outputLink','reviewComment','updatedAt'])
+          && ((resource.data.status == 'todo' && request.resource.data.status == 'in_progress')
+            || (resource.data.status == 'in_progress' && request.resource.data.status == 'pending_review')
+            || (resource.data.status == 'revision_required' && request.resource.data.status == 'in_progress')));
+        allow delete: if isLeader(projectId);
+      }
+
+      match /activities/{activityId} {
+        allow read: if isMember(projectId);
+        allow create: if (isMember(projectId) || getAfter(projectPath(projectId)).data.ownerId == request.auth.uid)
+          && request.resource.data.keys().hasOnly(['actorId','action','targetId','targetType','createdAt'])
+          && request.resource.data.actorId == request.auth.uid;
+        allow update, delete: if false;
+      }
+
+      // Chat nhóm: thành viên đọc và gửi tin của chính mình; không sửa, không xóa.
+      match /messages/{messageId} {
+        allow read: if isMember(projectId);
+        allow create: if isMember(projectId)
+          && request.resource.data.keys().hasOnly(['senderId','senderName','content','kind','createdAt'])
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.kind == 'user'
+          && request.resource.data.content is string
+          && request.resource.data.content.size() > 0
+          && request.resource.data.content.size() <= 2000;
+        allow update, delete: if false;
+      }
+
+      // Tài liệu chung: ai cũng tạo được, chỉ chủ mục hoặc leader xóa được.
+      match /documents/{documentId} {
+        allow read: if isMember(projectId);
+        allow create: if isMember(projectId)
+          && request.resource.data.keys().hasOnly(['label','url','createdBy','createdAt'])
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.label is string
+          && request.resource.data.label.size() > 0;
+        allow update: if false;
+        allow delete: if isLeader(projectId)
+          || (isMember(projectId) && resource.data.createdBy == request.auth.uid);
+      }
+
+      match /meetings/{meetingId} {
+        allow read: if isMember(projectId);
+        allow create: if isMember(projectId)
+          && request.resource.data.keys().hasOnly(['label','createdBy','createdAt'])
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.label is string
+          && request.resource.data.label.size() > 0;
+        allow update: if false;
+        allow delete: if isLeader(projectId)
+          || (isMember(projectId) && resource.data.createdBy == request.auth.uid);
+      }
+
+      match /votes/{voteId} {
+        allow read: if isMember(projectId);
+        allow create: if isMember(projectId)
+          && request.resource.data.keys().hasOnly(['question','options','createdBy','createdAt'])
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.question is string
+          && request.resource.data.question.size() > 0
+          && request.resource.data.options is list
+          && request.resource.data.options.size() >= 2;
+        allow update: if false;
+        allow delete: if isLeader(projectId)
+          || (isMember(projectId) && resource.data.createdBy == request.auth.uid);
+
+        // Mỗi thành viên một phiếu (doc ID = uid); đọc toàn bộ ballots để đếm số phiếu.
+        match /ballots/{voterUid} {
+          allow read: if isMember(projectId);
+          allow create, update: if isSelf(voterUid)
+            && isMember(projectId)
+            && request.resource.data.keys().hasOnly(['option','createdAt'])
+            && request.resource.data.option is int
+            && request.resource.data.option >= 0
+            && request.resource.data.option < get(/databases/$(database)/documents/projects/$(projectId)/votes/$(voteId)).data.options.size();
+          allow delete: if false;
+        }
+      }
+    }
+  }
+}

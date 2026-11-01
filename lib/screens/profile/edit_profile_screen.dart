@@ -1,13 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../controllers/session_controller.dart';
-import '../../core/theme/app_colors.dart';
-import '../../core/utils/validators.dart';
 import '../../models/user_profile.dart';
-import '../../widgets/app_frame.dart';
-import '../../widgets/auth_layout.dart' show FormMessage;
-import '../../widgets/primary_button.dart';
-import '../../widgets/user_avatar.dart';
+import '../../services/service_errors.dart';
+import '../../widgets/auth_widgets.dart';
+import '../../utils/validators.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key, required this.session});
@@ -18,7 +15,7 @@ class EditProfileScreen extends StatefulWidget {
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final form = GlobalKey<FormState>();
-  late final TextEditingController name, phone, bio, major;
+  late final TextEditingController name, phone, bio, major, avatar;
   bool busy = false;
   String? error;
   late final UserProfile original;
@@ -31,6 +28,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     phone = TextEditingController(text: u.phone);
     bio = TextEditingController(text: u.bio);
     major = TextEditingController(text: u.specialty);
+    avatar = TextEditingController(text: u.avatarUrl);
   }
 
   @override
@@ -39,12 +37,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     phone.dispose();
     bio.dispose();
     major.dispose();
-
+    avatar.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => AppFrame(
+  Widget build(BuildContext context) => Frame(
     child: Column(
       children: [
         Row(
@@ -71,12 +69,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               key: form,
               child: Column(
                 children: [
-                  const UserAvatar(large: true),
+                  Avatar(
+                    large: true,
+                    url: original.avatarUrl,
+                    name: original.name,
+                  ),
                   const SizedBox(height: 12),
                   const Text(
                     'THÔNG TIN CÁ NHÂN',
                     style: TextStyle(
-                      color: AppColors.darkPurple,
+                      color: olive,
                       fontSize: 10,
                       letterSpacing: 2,
                     ),
@@ -128,7 +130,24 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  if (error != null) FormMessage(error!),
+                  TextFormField(
+                    controller: avatar,
+                    decoration: const InputDecoration(
+                      labelText: 'URL ảnh đại diện (HTTPS)',
+                    ),
+                    validator: (v) {
+                      final text = (v ?? '').trim();
+                      final uri = Uri.tryParse(text);
+                      return text.isEmpty ||
+                              uri != null &&
+                                  uri.scheme == 'https' &&
+                                  uri.host.isNotEmpty
+                          ? null
+                          : 'Nhập URL HTTPS hợp lệ.';
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  if (error != null) InlineError(error!),
                   if (busy) const LinearProgressIndicator(),
                   PrimaryButton(
                     busy ? 'Đang lưu…' : 'Lưu thay đổi',
@@ -159,7 +178,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           phone: phone.text.trim(),
           specialty: major.text.trim(),
           bio: bio.text.trim(),
-          avatarUrl: original.avatarUrl,
+          avatarUrl: avatar.text.trim(),
           studentId: original.studentId,
           className: original.className,
           projects: original.projects,
@@ -171,7 +190,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Đã lưu hồ sơ.')));
     } catch (e) {
-      if (mounted) setState(() => error = e.toString());
+      if (mounted) setState(() => error = errorText(e));
     } finally {
       if (mounted) setState(() => busy = false);
     }

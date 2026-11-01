@@ -3,14 +3,54 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 
 class ApiException implements Exception {
-  const ApiException(this.message, {this.status = 0});
+  const ApiException(this.message, {this.status = 0, this.isNetwork = false});
   final String message;
   final int status;
+
+  /// true khi không tới được server (mất mạng, timeout, DNS...).
+  final bool isNetwork;
   @override
   String toString() => message;
+}
+
+/// Chuyển mọi lỗi thành câu tiếng Việt an toàn để hiển thị cho người dùng.
+String errorText(Object error) {
+  if (error is ApiException) return error.message;
+  if (error is FirebaseAuthException) {
+    switch (error.code) {
+      case 'invalid-email':
+        return 'Email không hợp lệ.';
+      case 'user-not-found':
+        return 'Không tìm thấy tài khoản.';
+      case 'wrong-password':
+      case 'invalid-credential':
+        return 'Email hoặc mật khẩu không chính xác.';
+      case 'email-already-in-use':
+        return 'Email này đã được đăng ký.';
+      case 'weak-password':
+        return 'Mật khẩu chưa đủ mạnh.';
+      case 'too-many-requests':
+        return 'Bạn thao tác quá nhiều lần. Vui lòng thử lại sau.';
+      case 'network-request-failed':
+        return 'Không thể kết nối mạng. Vui lòng thử lại.';
+    }
+  }
+  return 'Đã xảy ra lỗi. Vui lòng thử lại.';
+}
+
+/// File đính kèm cho request multipart (ví dụ upload avatar).
+class UploadFile {
+  const UploadFile({
+    required this.field,
+    required this.filename,
+    required this.bytes,
+  });
+  final String field, filename;
+  final List<int> bytes;
 }
 
 class TokenStore {
@@ -22,7 +62,10 @@ class TokenStore {
     final raw = await _storage.read(key: 'teamup.tokens');
     if (raw == null) return null;
     try {
-      return jsonDecode(raw) as Map<String, dynamic>;
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) return decoded;
+      await clear();
+      return null;
     } on FormatException {
       await clear();
       return null;
@@ -56,42 +99,160 @@ class ApiClient {
   bool _ending = false;
   int get epoch => _epoch;
 
+  static const _defaultTimeout = Duration(seconds: 15);
+  static const _uploadTimeout = Duration(seconds: 60);
+
+  /// Lấy thông điệp lỗi từ body: hỗ trợ `message` (string/list), `error`,
+  /// `errors` (list string hoặc list {message}).
+  static String? _extractMessage(Object? decoded) {
+    if (decoded is! Map) return null;
+    String? fromValue(Object? v) {
+      if (v is String && v.trim().isNotEmpty) return v.trim();
+      if (v is Map) return fromValue(v['message']);
+      if (v is List) {
+        final parts = v.map(fromValue).whereType<String>().toList();
+        return parts.isEmpty ? null : parts.join('\n');
+      }
+      return null;
+    }
+
+    return fromValue(decoded['message']) ??
+        fromValue(decoded['error']) ??
+        fromValue(decoded['errors']);
+  }
+
+  static String _defaultMessage(int status) {
+    if (status == 400 || status == 422) return 'Dữ liệu không hợp lệ.';
+    if (status == 401) return 'Phiên đăng nhập đã hết hạn.';
+    if (status == 403) return 'Bạn không có quyền thực hiện thao tác này.';
+    if (status == 404) return 'Không tìm thấy dữ liệu yêu cầu.';
+    if (status == 409) return 'Dữ liệu đã tồn tại hoặc bị xung đột.';
+    if (status == 413) return 'Tệp tải lên quá lớn.';
+    if (status == 429) {
+      return 'Bạn thao tác quá nhanh. Vui lòng thử lại sau ít phút.';
+    }
+    if (status >= 500) return 'Máy chủ đang gặp sự cố. Vui lòng thử lại sau.';
+    return 'Yêu cầu thất bại.';
+  }
+
   Future<Map<String, dynamic>> _send(
     String method,
     String path,
     Map<String, dynamic>? body,
-    String? token,
-  ) async {
+    String? token, {
+    Map<String, dynamic>? query,
+    Duration? timeout,
+    UploadFile? file,
+  }) async {
     try {
-      final req = http.Request(
-        method,
-        Uri.parse('${baseUrl.replaceAll(RegExp(r'/$'), '')}$path'),
-      );
-      req.headers['Content-Type'] = 'application/json';
+      var uri = Uri.parse('${baseUrl.replaceAll(RegExp(r'/$'), '')}$path');
+      if (query != null && query.isNotEmpty) {
+        uri = uri.replace(
+          queryParameters: {
+            ...uri.queryParameters,
+            for (final e in query.entries)
+              if (e.value != null) e.key: e.value.toString(),
+          },
+        );
+      }
+      final http.BaseRequest req;
+      if (file != null) {
+        final multipart = http.MultipartRequest(method, uri);
+        body?.forEach((k, v) {
+          if (v != null) multipart.fields[k] = v.toString();
+        });
+        multipart.files.add(
+          http.MultipartFile.fromBytes(
+            file.field,
+            file.bytes,
+            filename: file.filename,
+          ),
+        );
+        req = multipart;
+      } else {
+        final plain = http.Request(method, uri);
+        plain.headers['Content-Type'] = 'application/json';
+        if (body != null) plain.body = jsonEncode(body);
+        req = plain;
+      }
+      req.headers['Accept'] = 'application/json';
       if (token != null) req.headers['Authorization'] = 'Bearer $token';
-      if (body != null) req.body = jsonEncode(body);
-      final response = await (() async => http.Response.fromStream(
-        await _client.send(req),
-      ))().timeout(const Duration(seconds: 15));
-      final decoded = jsonDecode(response.body);
-      if (decoded is! Map<String, dynamic>) throw const FormatException();
+      final response =
+          await (() async => http.Response.fromStream(
+            await _client.send(req),
+          ))().timeout(
+            timeout ?? (file != null ? _uploadTimeout : _defaultTimeout),
+          );
+
+      final raw = utf8.decode(response.bodyBytes, allowMalformed: true).trim();
+      Object? decoded;
+      var parsed = false;
+      if (raw.isEmpty) {
+        decoded = <String, dynamic>{};
+        parsed = true;
+      } else {
+        try {
+          decoded = jsonDecode(raw);
+          parsed = true;
+        } on FormatException {
+          parsed = false;
+        }
+      }
+
       if (response.statusCode >= 400) {
         throw ApiException(
-          decoded['message'] as String? ?? 'Yêu cầu thất bại.',
+          (parsed ? _extractMessage(decoded) : null) ??
+              _defaultMessage(response.statusCode),
           status: response.statusCode,
         );
       }
-      return decoded;
+      if (!parsed) throw const FormatException();
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is List) return {'data': decoded};
+      throw const FormatException();
     } on ApiException {
       rethrow;
     } on TimeoutException {
-      throw const ApiException('Kết nối hết thời gian. Vui lòng thử lại.');
+      throw const ApiException(
+        'Kết nối hết thời gian. Vui lòng thử lại.',
+        isNetwork: true,
+      );
     } on FormatException {
       throw const ApiException('Máy chủ trả dữ liệu không hợp lệ.');
-    } on http.ClientException {
+    } on Exception {
+      // http.ClientException, SocketException, HandshakeException...
       throw const ApiException(
         'Không thể kết nối máy chủ. Kiểm tra mạng và địa chỉ API.',
+        isNetwork: true,
       );
+    }
+  }
+
+  /// Gửi request; GET được thử lại 1 lần nếu lỗi mạng (an toàn vì idempotent).
+  Future<Map<String, dynamic>> _sendWithRetry(
+    String method,
+    String path,
+    Map<String, dynamic>? body,
+    String? token, {
+    Map<String, dynamic>? query,
+    Duration? timeout,
+    UploadFile? file,
+  }) async {
+    try {
+      return await _send(
+        method,
+        path,
+        body,
+        token,
+        query: query,
+        timeout: timeout,
+        file: file,
+      );
+    } on ApiException catch (e) {
+      if (e.isNetwork && method == 'GET') {
+        return _send(method, path, body, token, query: query, timeout: timeout);
+      }
+      rethrow;
     }
   }
 
@@ -168,7 +329,11 @@ class ApiClient {
           await store.clear();
           throw const ApiException('Phiên đã kết thúc.', status: 401);
         }
-      } catch (_) {
+      } on ApiException catch (e) {
+        // Chỉ kết thúc phiên khi server thực sự từ chối refresh token.
+        // Mất mạng / timeout / 5xx thì giữ nguyên token để thử lại sau.
+        final rejected = e.status == 400 || e.status == 401 || e.status == 403;
+        if (!rejected) rethrow;
         if (generation == _epoch) await clearSession();
         throw const ApiException(
           'Phiên đã kết thúc. Vui lòng đăng nhập lại.',
@@ -188,35 +353,102 @@ class ApiClient {
     String method,
     String path, {
     Map<String, dynamic>? body,
+    Map<String, dynamic>? query,
     bool protected = false,
+    Duration? timeout,
+    UploadFile? file,
   }) async {
     if (protected && _ending) {
       throw const ApiException('Đang đăng xuất.', status: 401);
     }
     final generation = _epoch;
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final firebaseToken = protected && firebaseUser != null
+        ? await firebaseUser.getIdToken()
+        : null;
     final token = protected
-        ? ((await store.read())?['accessToken'] as String?)
+        ? (firebaseToken ?? ((await store.read())?['accessToken'] as String?))
         : null;
     try {
-      return await _send(method, path, body, token);
+      return await _sendWithRetry(
+        method,
+        path,
+        body,
+        token,
+        query: query,
+        timeout: timeout,
+        file: file,
+      );
     } on ApiException catch (e) {
       if (!protected || (e.status != 401 && e.status != 403)) rethrow;
       if (generation != _epoch) {
         throw const ApiException('Phiên đã kết thúc.', status: 401);
       }
+
+      // Firebase-authenticated app modules use Firebase ID tokens. The API
+      // backend must verify these tokens with Firebase Admin SDK.
+      if (firebaseUser != null) {
+        if (e.status == 403) rethrow;
+        final refreshed = await firebaseUser.getIdToken(true);
+        return _send(
+          method,
+          path,
+          body,
+          refreshed,
+          query: query,
+          timeout: timeout,
+          file: file,
+        );
+      }
+
+      // Legacy fallback for non-Firebase sessions only.
       await _refresh(token);
       if (generation != _epoch) {
         throw const ApiException('Phiên đã kết thúc.', status: 401);
       }
       final renewed = (await store.read())?['accessToken'] as String?;
       try {
-        return await _send(method, path, body, renewed);
+        return await _send(
+          method,
+          path,
+          body,
+          renewed,
+          query: query,
+          timeout: timeout,
+          file: file,
+        );
       } on ApiException catch (retry) {
-        if (retry.status == 401 || retry.status == 403) await clearSession();
+        if (retry.status == 401) await clearSession();
         rethrow;
       }
     }
   }
+
+  Future<Map<String, dynamic>> get(
+    String path, {
+    Map<String, dynamic>? query,
+    bool protected = true,
+  }) => request('GET', path, query: query, protected: protected);
+  Future<Map<String, dynamic>> post(
+    String path, {
+    Map<String, dynamic>? body,
+    bool protected = true,
+  }) => request('POST', path, body: body, protected: protected);
+  Future<Map<String, dynamic>> put(
+    String path, {
+    Map<String, dynamic>? body,
+    bool protected = true,
+  }) => request('PUT', path, body: body, protected: protected);
+  Future<Map<String, dynamic>> patch(
+    String path, {
+    Map<String, dynamic>? body,
+    bool protected = true,
+  }) => request('PATCH', path, body: body, protected: protected);
+  Future<Map<String, dynamic>> delete(
+    String path, {
+    Map<String, dynamic>? body,
+    bool protected = true,
+  }) => request('DELETE', path, body: body, protected: protected);
 
   void close() => _client.close();
 }
