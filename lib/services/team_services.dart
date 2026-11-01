@@ -82,10 +82,13 @@ Future<T> _guard<T>(Future<T> Function() action) async {
 }
 
 abstract class _FirestoreService {
-  _FirestoreService({FirebaseFirestore? firestore, FirebaseAuth? auth, ApiClient? api})
-    : _db = firestore ?? FirebaseFirestore.instance,
-      _auth = auth ?? FirebaseAuth.instance,
-      _api = api ?? ApiClient();
+  _FirestoreService({
+    FirebaseFirestore? firestore,
+    FirebaseAuth? auth,
+    ApiClient? api,
+  }) : _db = firestore ?? FirebaseFirestore.instance,
+       _auth = auth ?? FirebaseAuth.instance,
+       _api = api ?? ApiClient();
 
   final FirebaseFirestore _db;
   final FirebaseAuth _auth;
@@ -120,7 +123,9 @@ abstract class _FirestoreService {
   /// Dự án cũ chưa có `members/{uid}` thì suy ra từ `ownerId` / `memberIds`.
   Future<String?> _roleOf(String projectId, String uid) async {
     final snapshot = await _memberDoc(projectId, uid).get();
-    if (snapshot.exists) return (snapshot.data()?['role'] ?? 'member').toString();
+    if (snapshot.exists) {
+      return (snapshot.data()?['role'] ?? 'member').toString();
+    }
     final project = await _projects.doc(projectId).get();
     return _roleFromProject(project.data(), uid);
   }
@@ -132,7 +137,9 @@ String? _roleFromProject(Map<String, dynamic>? data, String uid) {
   if (data == null || uid.isEmpty) return null;
   if (data['ownerId']?.toString() == uid) return 'leader';
   final ids = data['memberIds'];
-  if (ids is List && ids.map((e) => e.toString()).contains(uid)) return 'member';
+  if (ids is List && ids.map((e) => e.toString()).contains(uid)) {
+    return 'member';
+  }
   return null;
 }
 
@@ -291,7 +298,8 @@ class ProjectService extends _FirestoreService {
           ...profile,
           'uid': id,
           'username': profile['username'] ?? '',
-          'displayName': profile['displayName'] ?? profile['username'] ?? 'Thành viên',
+          'displayName':
+              profile['displayName'] ?? profile['username'] ?? 'Thành viên',
           'role': id == ownerId ? 'leader' : 'member',
         };
       }),
@@ -315,14 +323,13 @@ class ProjectService extends _FirestoreService {
 
     controller = StreamController<List<Map<String, dynamic>>>(
       onListen: () {
-        membersSub = _membersOf(projectId).snapshots().listen(
-          (_) => refresh(),
-          onError: (_) {},
-        );
-        projectSub = _projects.doc(projectId).snapshots().listen(
-          (_) => refresh(),
-          onError: controller.addError,
-        );
+        membersSub = _membersOf(projectId)
+            .snapshots()
+            .listen((_) => refresh(), onError: (_) {});
+        projectSub = _projects
+            .doc(projectId)
+            .snapshots()
+            .listen((_) => refresh(), onError: controller.addError);
       },
       onCancel: () async {
         await membersSub?.cancel();
@@ -350,10 +357,15 @@ class ProjectService extends _FirestoreService {
     final result = entries.whereType<Map<String, dynamic>>().toList();
     final seen = result.map((p) => p['id']).toSet();
     try {
-      final legacy = await _projects.where('memberIds', arrayContains: uid).get();
+      final legacy = await _projects
+          .where('memberIds', arrayContains: uid)
+          .get();
       for (final doc in legacy.docs.where((d) => !seen.contains(d.id))) {
         final data = _docMap(doc);
-        result.add({...data, 'myRole': _roleFromProject(data, uid) ?? 'member'});
+        result.add({
+          ...data,
+          'myRole': _roleFromProject(data, uid) ?? 'member',
+        });
       }
     } catch (_) {}
     return result;
@@ -404,34 +416,52 @@ class ProjectService extends _FirestoreService {
     if (name.trim().isEmpty) {
       throw const ServiceException('Tên dự án không được để trống.');
     }
-    final response = await _guard(() => _api.post('/projects', body: {
-      'name': name.trim(), 'tag': tag.trim(), 'description': description.trim(),
-      'coverUrl': coverUrl,
-      if (startDate != null) 'startDate': startDate.toIso8601String(),
-      if (endDate != null) 'endDate': endDate.toIso8601String(),
-    }));
+    final response = await _guard(
+      () => _api.post(
+        '/projects',
+        body: {
+          'name': name.trim(),
+          'tag': tag.trim(),
+          'description': description.trim(),
+          'coverUrl': coverUrl,
+          if (startDate != null) 'startDate': startDate.toIso8601String(),
+          if (endDate != null) 'endDate': endDate.toIso8601String(),
+        },
+      ),
+    );
     final project = response['project'];
-    if (project is! Map) throw const ServiceException('Máy chủ không trả dữ liệu dự án.');
+    if (project is! Map) {
+      throw const ServiceException('Máy chủ không trả dữ liệu dự án.');
+    }
     return Map<String, dynamic>.from(project);
-
   }
 
   /// Mã tham gia được backend kiểm tra để không lộ dự án công khai.
   Future<Map<String, dynamic>> join(String joinCode) async {
     _requireUid();
     final code = joinCode.trim().toUpperCase();
-    if (code.isEmpty) throw const ServiceException('Vui lòng nhập mã tham gia.');
-    final response = await _guard(() => _api.post('/projects/join', body: {'joinCode': code}));
+    if (code.isEmpty) {
+      throw const ServiceException('Vui lòng nhập mã tham gia.');
+    }
+    final response = await _guard(
+      () => _api.post('/projects/join', body: {'joinCode': code}),
+    );
     final projectId = response['projectId']?.toString() ?? '';
-    if (projectId.isEmpty) throw const ServiceException('Không thể tham gia dự án.');
+    if (projectId.isEmpty) {
+      throw const ServiceException('Không thể tham gia dự án.');
+    }
     return get(projectId);
   }
 
   Future<void> addMemberByUsername(String projectId, String username) async {
     _requireUid();
     final name = username.trim().toLowerCase();
-    if (name.isEmpty) throw const ServiceException('Vui lòng nhập tên đăng nhập.');
-    await _guard(() => _api.post('/projects/$projectId/members', body: {'username': name}));
+    if (name.isEmpty) {
+      throw const ServiceException('Vui lòng nhập tên đăng nhập.');
+    }
+    await _guard(
+      () => _api.post('/projects/$projectId/members', body: {'username': name}),
+    );
   }
 
   Future<void> removeMember(String projectId, String memberUid) async {
@@ -466,10 +496,17 @@ class ProjectService extends _FirestoreService {
       }
       safe['name'] = name;
     }
-    await _guard(() => _api.patch('/projects/$projectId', body: {
-      for (final entry in safe.entries)
-        entry.key: entry.value is DateTime ? (entry.value as DateTime).toIso8601String() : entry.value,
-    }));
+    await _guard(
+      () => _api.patch(
+        '/projects/$projectId',
+        body: {
+          for (final entry in safe.entries)
+            entry.key: entry.value is DateTime
+                ? (entry.value as DateTime).toIso8601String()
+                : entry.value,
+        },
+      ),
+    );
   }
 
   /// Xóa dự án qua backend; backend cũng xóa subcollection và dọn chỉ mục
@@ -640,7 +677,9 @@ class TaskService extends _FirestoreService {
       () => _api.post('/projects/$projectId/tasks', body: data),
     );
     final created = response['task'];
-    if (created is! Map) throw const ServiceException('Máy chủ không trả dữ liệu công việc.');
+    if (created is! Map) {
+      throw const ServiceException('Máy chủ không trả dữ liệu công việc.');
+    }
     return Map<String, dynamic>.from(created);
   }
 
@@ -753,7 +792,6 @@ class TaskService extends _FirestoreService {
     _requireUid();
     await _guard(() => _api.delete('/projects/$projectId/tasks/$taskId'));
   }
-
 }
 
 class ChatService extends _FirestoreService {
@@ -856,7 +894,7 @@ class NotificationService extends _FirestoreService {
 
 /// Workspace của dự án: tài liệu, lịch họp và bình chọn, tất cả lưu ở Firestore.
 class WorkspaceService extends _FirestoreService {
-  WorkspaceService({super.firestore, super.auth});
+  WorkspaceService({super.firestore, super.auth, super.api});
 
   CollectionReference<Map<String, dynamic>> _rows(
     String projectId,
@@ -869,134 +907,236 @@ class WorkspaceService extends _FirestoreService {
   Stream<List<Map<String, dynamic>>> watchMeetings(String projectId) =>
       _rows(projectId, 'meetings').snapshots().map(_sortedByCreated);
 
-  Stream<List<Map<String, dynamic>>> watchVotes(String projectId) =>
-      _rows(projectId, 'votes').snapshots().asyncMap((snapshot) async {
-        final uid = _requireUid();
-        final rows = await Future.wait(
-          snapshot.docs.map((doc) async {
-            final ballots = await _rows(
-              projectId,
-              'votes',
-            ).doc(doc.id).collection('ballots').get();
-            final counts = List<int>.filled(
-              ((doc.data()['options'] as List?) ?? const []).length,
-              0,
-            );
-            for (final ballot in ballots.docs) {
-              final index = ballot.data()['option'];
-              if (index is int && index >= 0 && index < counts.length) {
-                counts[index]++;
+  Stream<List<Map<String, dynamic>>> watchVotes(String projectId) {
+    final uid = _requireUid();
+    final votesCollection = _rows(projectId, 'votes');
+
+    late StreamController<List<Map<String, dynamic>>> controller;
+    StreamSubscription? votesSubscription;
+
+    final ballotSubscriptions = <String, StreamSubscription>{};
+    final voteDocuments = <String, Map<String, dynamic>>{};
+    final ballotDocuments = <String, List<Map<String, dynamic>>>{};
+
+    void emit() {
+      if (controller.isClosed) return;
+
+      final rows = <Map<String, dynamic>>[];
+
+      for (final entry in voteDocuments.entries) {
+        final voteId = entry.key;
+        final vote = entry.value;
+        final ballots = ballotDocuments[voteId] ?? const [];
+
+        final options = (vote['options'] as List?) ?? const [];
+        final counts = List<int>.filled(options.length, 0);
+
+        final myVotes = <int>[];
+        var totalParticipants = 0;
+
+        for (final ballot in ballots) {
+          final selected = <int>{};
+
+          // Hỗ trợ phiếu mới: options = [0, 1, ...]
+          final multiple = ballot['options'];
+          if (multiple is List) {
+            for (final value in multiple) {
+              if (value is int && value >= 0 && value < counts.length) {
+                selected.add(value);
               }
             }
-            return {
-              ..._docMap(doc),
-              'counts': counts,
-              'totalVotes': ballots.docs.length,
-              'myVote': ballots.docs
-                  .where((b) => b.id == uid)
-                  .map((b) => b.data()['option'])
-                  .firstOrNull,
-            };
-          }),
+          } else {
+            // Hỗ trợ phiếu cũ: option = 0
+            final single = ballot['option'];
+            if (single is int && single >= 0 && single < counts.length) {
+              selected.add(single);
+            }
+          }
+
+          if (selected.isNotEmpty) {
+            totalParticipants++;
+          }
+
+          for (final index in selected) {
+            counts[index]++;
+          }
+
+          if (ballot['id'] == uid) {
+            myVotes.addAll(selected);
+          }
+        }
+
+        myVotes.sort();
+
+        rows.add({
+          ...vote,
+          'counts': counts,
+          'totalVotes': totalParticipants,
+          'myVotes': myVotes,
+        });
+      }
+
+      rows.sort(
+        (a, b) => _stamp(b['createdAt']).compareTo(_stamp(a['createdAt'])),
+      );
+
+      controller.add(rows);
+    }
+
+    controller = StreamController<List<Map<String, dynamic>>>(
+      onListen: () {
+        votesSubscription = votesCollection.snapshots().listen(
+          (snapshot) {
+            final ids = snapshot.docs
+                .where((doc) => doc.data()['deleting'] != true)
+                .map((doc) => doc.id)
+                .toSet();
+
+            for (final id in ballotSubscriptions.keys.toList()) {
+              if (!ids.contains(id)) {
+                ballotSubscriptions.remove(id)?.cancel();
+                ballotDocuments.remove(id);
+              }
+            }
+
+            voteDocuments.clear();
+
+            for (final doc in snapshot.docs) {
+              final voteId = doc.id;
+              if (doc.data()['deleting'] == true) continue;
+              voteDocuments[voteId] = _docMap(doc);
+
+              if (ballotSubscriptions.containsKey(voteId)) {
+                continue;
+              }
+
+              ballotSubscriptions[voteId] = votesCollection
+                  .doc(voteId)
+                  .collection('ballots')
+                  .snapshots()
+                  .listen(
+                    (ballotsSnapshot) {
+                      if (controller.isClosed ||
+                          !voteDocuments.containsKey(voteId)) {
+                        return;
+                      }
+
+                      ballotDocuments[voteId] = ballotsSnapshot.docs.map((
+                        ballot,
+                      ) {
+                        return {...ballot.data(), 'id': ballot.id};
+                      }).toList();
+
+                      emit();
+                    },
+                    onError: (Object error, StackTrace stackTrace) {
+                      if (!controller.isClosed &&
+                          voteDocuments.containsKey(voteId)) {
+                        controller.addError(error, stackTrace);
+                      }
+                    },
+                  );
+            }
+
+            emit();
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            if (!controller.isClosed) {
+              controller.addError(error, stackTrace);
+            }
+          },
         );
-        return rows..sort(
-          (a, b) => _stamp(b['createdAt']).compareTo(_stamp(a['createdAt'])),
-        );
-      });
+      },
+      onCancel: () async {
+        await votesSubscription?.cancel();
+
+        for (final subscription in ballotSubscriptions.values) {
+          await subscription.cancel();
+        }
+
+        ballotSubscriptions.clear();
+        ballotDocuments.clear();
+        voteDocuments.clear();
+      },
+    );
+
+    return controller.stream;
+  }
 
   static List<Map<String, dynamic>> _sortedByCreated(
     QuerySnapshot<Map<String, dynamic>> snapshot,
   ) => snapshot.docs.map((doc) => _docMap(doc)).toList()
     ..sort((a, b) => _stamp(b['createdAt']).compareTo(_stamp(a['createdAt'])));
 
-  Future<void> addDocument(String projectId, String label, {String url = ''}) =>
-      _add(projectId, 'documents', label, extra: {'url': _validatedUrl(url)});
+  String _path(String projectId, String collection) {
+    _requireUid();
+    if (!{'documents', 'meetings', 'votes'}.contains(collection)) {
+      throw const ServiceException('Loại dữ liệu Workspace không hợp lệ.');
+    }
+    return '/projects/$projectId/workspace/$collection';
+  }
 
-  Future<void> addMeeting(String projectId, String label) =>
-      _add(projectId, 'meetings', label);
+  Future<void> addDocument(
+    String projectId,
+    String label, {
+    String url = '',
+  }) async {
+    await _guard(
+      () => _api.post(
+        _path(projectId, 'documents'),
+        body: {'label': label.trim(), 'url': _validatedUrl(url)},
+      ),
+    );
+  }
+
+  Future<void> addMeeting(
+    String projectId,
+    String label, {
+    required DateTime startsAt,
+    required DateTime endsAt,
+  }) async {
+    await _guard(
+      () => _api.post(
+        _path(projectId, 'meetings'),
+        body: {
+          'label': label.trim(),
+          'startsAt': startsAt.toUtc().toIso8601String(),
+          'endsAt': endsAt.toUtc().toIso8601String(),
+        },
+      ),
+    );
+  }
 
   Future<void> addVote(
     String projectId,
     String question,
     List<String> options,
   ) async {
-    _requireUid();
-    final choices = options
-        .map((o) => o.trim())
-        .where((o) => o.isNotEmpty)
-        .toList();
-    if (question.trim().isEmpty) {
-      throw const ServiceException('Câu hỏi bình chọn không được để trống.');
-    }
-    if (choices.length < 2) {
-      throw const ServiceException('Bình chọn cần ít nhất hai phương án.');
-    }
     await _guard(
-      () => _rows(projectId, 'votes').add({
-        'question': question.trim(),
-        'options': choices,
-        'createdBy': currentUserId,
-        'createdAt': FieldValue.serverTimestamp(),
-      }),
+      () => _api.post(
+        _path(projectId, 'votes'),
+        body: {
+          'question': question.trim(),
+          'options': options.map((v) => v.trim()).toList(),
+        },
+      ),
     );
   }
 
   Future<void> removeRow(String projectId, String collection, String id) async {
-    final uid = _requireUid();
-    final role = await _guard(() => _roleOf(projectId, uid));
-    if (role == null) {
-      throw const ServiceException('Bạn không phải thành viên dự án này.');
-    }
-    final doc = await _guard(() => _rows(projectId, collection).doc(id).get());
-    if (!doc.exists) return;
-    if (doc.data()?['createdBy'] != uid && role != 'leader') {
-      throw const ServiceException('Bạn chỉ xóa được mục do chính mình tạo.');
-    }
-    await _guard(() => _rows(projectId, collection).doc(id).delete());
+    await _guard(() => _api.delete('${_path(projectId, collection)}/$id'));
   }
 
-  /// Mỗi người chỉ bầu một lần cho một bình chọn.
-  Future<void> vote(String projectId, String voteId, int option) async {
-    final uid = _requireUid();
-    if (await _guard(() => _roleOf(projectId, uid)) == null) {
-      throw const ServiceException('Bạn không phải thành viên dự án này.');
-    }
-    final vote = await _guard(
-      () => _rows(projectId, 'votes').doc(voteId).get(),
-    );
-    final options = (vote.data()?['options'] as List?) ?? const [];
-    if (!vote.exists) throw const ServiceException('Không tìm thấy bình chọn.');
-    if (option < 0 || option >= options.length) {
-      throw const ServiceException('Phương án bình chọn không hợp lệ.');
-    }
-    await _guard(
-      () => _rows(projectId, 'votes')
-          .doc(voteId)
-          .collection('ballots')
-          .doc(uid)
-          .set({'option': option, 'createdAt': FieldValue.serverTimestamp()}),
-    );
-  }
-
-  Future<void> _add(
+  Future<void> voteMultiple(
     String projectId,
-    String collection,
-    String label, {
-    Map<String, dynamic> extra = const {},
-  }) async {
-    final uid = _requireUid();
-    final text = label.trim();
-    if (text.isEmpty) throw const ServiceException('Tên không được để trống.');
-    if (await _guard(() => _roleOf(projectId, uid)) == null) {
-      throw const ServiceException('Bạn không phải thành viên dự án này.');
-    }
+    String voteId,
+    List<int> selectedOptions,
+  ) async {
     await _guard(
-      () => _rows(projectId, collection).add({
-        'label': text,
-        ...extra,
-        'createdBy': uid,
-        'createdAt': FieldValue.serverTimestamp(),
-      }),
+      () => _api.put(
+        '${_path(projectId, 'votes')}/$voteId/ballot',
+        body: {'options': selectedOptions.toSet().toList()..sort()},
+      ),
     );
   }
 
@@ -1006,6 +1146,8 @@ class WorkspaceService extends _FirestoreService {
     final uri = Uri.tryParse(text);
     if (uri == null ||
         !uri.hasAuthority ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
         !['http', 'https'].contains(uri.scheme)) {
       throw const ServiceException(
         'Đường dẫn cần bắt đầu bằng http:// hoặc https://',
