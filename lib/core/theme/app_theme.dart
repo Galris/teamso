@@ -23,7 +23,8 @@ abstract final class AppTheme {
         ).copyWith(
           primary: AppColors.darkPurple,
           onPrimary: Colors.white,
-          secondary: AppColors.purple,
+          secondary: AppColors.green,
+          tertiary: AppColors.pink,
           surface: AppColors.surface,
           onSurface: AppColors.textPrimary,
           outline: AppColors.border,
@@ -39,7 +40,7 @@ abstract final class AppTheme {
     final base = ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
-      scaffoldBackgroundColor: AppColors.background,
+      scaffoldBackgroundColor: AppColors.pageTint,
       fontFamily: 'Roboto',
       splashFactory: InkSparkle.splashFactory,
     );
@@ -192,7 +193,7 @@ abstract final class AppTheme {
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         height: 68,
-        indicatorColor: AppColors.purple.withValues(alpha: 0.2),
+        indicatorColor: AppColors.purpleSoft,
         labelTextStyle: WidgetStateProperty.resolveWith(
           (states) => TextStyle(
             fontSize: 11,
@@ -231,6 +232,27 @@ abstract final class AppTheme {
         showDragHandle: true,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith(
+          (s) => s.contains(WidgetState.selected) ? Colors.white : null,
+        ),
+        trackColor: WidgetStateProperty.resolveWith(
+          (s) => s.contains(WidgetState.selected) ? AppColors.green : null,
+        ),
+      ),
+      checkboxTheme: CheckboxThemeData(
+        fillColor: WidgetStateProperty.resolveWith(
+          (s) => s.contains(WidgetState.selected) ? AppColors.green : null,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+      ),
+      segmentedButtonTheme: SegmentedButtonThemeData(
+        style: SegmentedButton.styleFrom(
+          selectedBackgroundColor: AppColors.purpleSoft,
+          selectedForegroundColor: AppColors.darkPurple,
+          side: const BorderSide(color: AppColors.border),
         ),
       ),
       progressIndicatorTheme: const ProgressIndicatorThemeData(

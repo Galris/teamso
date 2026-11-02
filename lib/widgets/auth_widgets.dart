@@ -20,10 +20,20 @@ class Frame extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
     appBar: appBar,
     bottomNavigationBar: bottomNavigationBar,
-    body: Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 460),
-        child: SafeArea(child: child),
+    body: DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Colors.white, AppColors.purpleSoft, AppColors.pinkSoft],
+          stops: [0.0, 0.62, 1.0],
+        ),
+      ),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 460),
+          child: SafeArea(child: child),
+        ),
       ),
     ),
   );

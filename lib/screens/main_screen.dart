@@ -20,9 +20,15 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
+class _MainScreenState extends State<MainScreen>
+    with SingleTickerProviderStateMixin {
   int _currentIndex = 0;
   final ValueNotifier<int> _unread = ValueNotifier<int>(0);
+  late final AnimationController _fade = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 260),
+    value: 1,
+  );
 
   static const _dests = appDestinations;
 
@@ -39,6 +45,7 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   void dispose() {
+    _fade.dispose();
     _unread.dispose();
     super.dispose();
   }
@@ -63,6 +70,7 @@ class _MainScreenState extends State<MainScreen> {
   void _select(int index) {
     if (index == _currentIndex) return;
     setState(() => _currentIndex = index);
+    _fade.forward(from: 0);
   }
 
   Widget _icon(int i, {required bool selected}) =>
@@ -72,11 +80,29 @@ class _MainScreenState extends State<MainScreen> {
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 720;
 
-    final body = IndexedStack(index: _currentIndex, children: _screens);
+    // IndexedStack giữ trạng thái từng tab; hiệu ứng mờ dần chạy bằng controller
+    // riêng nên không dựng lại các tab.
+    final body = FadeTransition(
+      opacity: CurvedAnimation(parent: _fade, curve: Curves.easeOut),
+      child: IndexedStack(index: _currentIndex, children: _screens),
+    );
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_dests[_currentIndex].title),
+        title: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          child: Text(
+            _dests[_currentIndex].title,
+            key: ValueKey(_currentIndex),
+          ),
+        ),
+        bottom: const PreferredSize(
+          preferredSize: Size.fromHeight(3),
+          child: DecoratedBox(
+            decoration: BoxDecoration(gradient: AppColors.brandGradient),
+            child: SizedBox(height: 3, width: double.infinity),
+          ),
+        ),
         actions: [
           ListenableBuilder(
             listenable: widget.session ?? _unread,
@@ -109,7 +135,7 @@ class _MainScreenState extends State<MainScreen> {
                   onDestinationSelected: _select,
                   labelType: NavigationRailLabelType.all,
                   backgroundColor: Colors.white,
-                  indicatorColor: AppColors.purple.withValues(alpha: 0.2),
+                  indicatorColor: AppColors.purpleSoft,
                   destinations: [
                     for (var i = 0; i < _dests.length; i++)
                       NavigationRailDestination(

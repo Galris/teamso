@@ -92,11 +92,15 @@ class SessionController extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
-    await auth.signOut();
+    // Ngắt mọi listener Firestore và đưa UI về màn hình đăng nhập TRƯỚC khi
+    // thu hồi phiên. Nếu làm ngược lại, các stream còn sống nhận lỗi
+    // permission-denied và các màn hình rebuild với dữ liệu đã bị xóa giữa chừng.
+    _authEpoch++;
     await TaskStore.instance.stop();
     user = null;
     startupError = null;
     notifyListeners();
+    await auth.signOut();
   }
 
   @override

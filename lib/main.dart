@@ -13,8 +13,46 @@ import 'widgets/auth_widgets.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  _installSoftErrorWidget();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const TeamUpApp());
+}
+
+/// Lưới an toàn: nếu một widget vẫn ném lỗi lúc build, hiện khung trống nhẹ
+/// nhàng thay cho màn hình đỏ. Lỗi vẫn được ghi log để còn truy vết.
+void _installSoftErrorWidget() {
+  ErrorWidget.builder = (FlutterErrorDetails details) {
+    debugPrint('Widget build error: ${details.exceptionAsString()}');
+    return const _SoftErrorBox();
+  };
+}
+
+class _SoftErrorBox extends StatelessWidget {
+  const _SoftErrorBox();
+
+  @override
+  Widget build(BuildContext context) => const Directionality(
+    textDirection: TextDirection.ltr,
+    child: ColoredBox(
+      color: Color(0xFFF7F7FB),
+      child: Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'Không thể hiển thị nội dung này.\nHãy quay lại hoặc kéo để tải lại.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Color(0xFF858397),
+              fontSize: 14,
+              height: 1.4,
+              decoration: TextDecoration.none,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class TeamUpApp extends MyApp {
@@ -30,14 +68,30 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   late final SessionController session;
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  bool? _wasSignedIn;
+
   @override
   void initState() {
     super.initState();
     session = widget.session ?? SessionController();
+    session.addListener(_onSessionChanged);
+  }
+
+  /// Khi đăng nhập/đăng xuất: đóng mọi màn hình và dialog đang mở chồng lên
+  /// màn hình chính (hồ sơ, đăng ký, quên mật khẩu...).
+  void _onSessionChanged() {
+    final signedIn = session.user != null;
+    if (_wasSignedIn == signedIn) return;
+    _wasSignedIn = signedIn;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _navigatorKey.currentState?.popUntil((route) => route.isFirst);
+    });
   }
 
   @override
   void dispose() {
+    session.removeListener(_onSessionChanged);
     if (widget.session == null) session.dispose();
     super.dispose();
   }
@@ -86,14 +140,18 @@ class _MyAppState extends State<MyApp> {
   );
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: session,
-    builder: (context, _) => MaterialApp(
-      key: ValueKey(session.user != null),
-      debugShowCheckedModeBanner: false,
-      title: 'TeamUp',
-      theme: AppTheme.light,
-      home: AnimatedSwitcher(
+  Widget build(BuildContext context) => MaterialApp(
+    // KHÔNG đổi key của MaterialApp theo trạng thái đăng nhập: thay cả cây
+    // MaterialApp khi route/dialog còn sống gây assertion
+    // "_dependents.isEmpty" (màn hình đỏ). Thay vào đó giữ một MaterialApp và
+    // dọn stack route bằng navigatorKey khi trạng thái đăng nhập đổi.
+    navigatorKey: _navigatorKey,
+    debugShowCheckedModeBanner: false,
+    title: 'TeamUp',
+    theme: AppTheme.light,
+    home: ListenableBuilder(
+      listenable: session,
+      builder: (context, _) => AnimatedSwitcher(
         duration: const Duration(milliseconds: 300),
         child: session.initializing
             ? const SplashScreen(

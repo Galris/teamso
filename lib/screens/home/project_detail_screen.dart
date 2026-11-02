@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/app_services.dart';
 import '../../services/service_errors.dart';
 import '../../services/team_services.dart';
+import '../../widgets/prompt_dialog.dart';
 
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
@@ -45,6 +46,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
   StreamSubscription? _projectSubscription;
   StreamSubscription? _taskSubscription;
   StreamSubscription? _memberSubscription;
+  StreamSubscription? _resourceSubscription;
 
   bool _loading = true;
   bool _busy = false;
@@ -52,13 +54,15 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
   Map<String, dynamic>? _project;
   List<Map<String, dynamic>> _tasks = [];
   List<Map<String, dynamic>> _members = [];
+  List<Map<String, dynamic>> _resources = [];
+  String? _resourcesError;
 
   String get _currentUserId => _currentUserIdFromProject();
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _listenRealtime();
   }
 
@@ -73,6 +77,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
     _projectSubscription?.cancel();
     _taskSubscription?.cancel();
     _memberSubscription?.cancel();
+    _resourceSubscription?.cancel();
+    _resourceSubscription = null;
     _projectSubscription = null;
     _taskSubscription = null;
     _memberSubscription = null;
@@ -128,6 +134,22 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
           },
           onError: (Object error) {
             if (mounted) setState(() => _error = errorText(error));
+          },
+        );
+    // Lỗi tài nguyên (ví dụ thiếu quyền đọc) chỉ hiện trong tab Tài nguyên,
+    // không làm hỏng cả màn hình dự án.
+    _resourceSubscription = AppServices.instance.resources
+        .watch(widget.projectId)
+        .listen(
+          (rows) {
+            if (!mounted) return;
+            setState(() {
+              _resources = rows;
+              _resourcesError = null;
+            });
+          },
+          onError: (Object error) {
+            if (mounted) setState(() => _resourcesError = errorText(error));
           },
         );
   }
@@ -390,212 +412,34 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
       _message('Chỉ Leader của dự án mới được tạo công việc.');
       return;
     }
-    final titleController = TextEditingController();
-    final descriptionController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-    String? assigneeId;
-    String priority = 'medium';
-    DateTime? dueDate;
-    String outputType = 'docs';
-    bool outputRequired = true;
+    // Danh sách người thực hiện: lấy uid từ nhiều khóa có thể có và loại trùng
+    // (DropdownButton không cho phép hai mục cùng value).
+    final seen = <String>{};
+    final memberItems = <DropdownMenuItem<String>>[];
+    for (final member in _members) {
+      final id = _stringValue(member, const [
+        'uid',
+        'id',
+        '_id',
+        'userId',
+        'user_id',
+      ]);
+      if (id.isEmpty || !seen.add(id)) continue;
+      memberItems.add(
+        DropdownMenuItem<String>(
+          value: id,
+          child: Text(_memberName(member), overflow: TextOverflow.ellipsis),
+        ),
+      );
+    }
 
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Tạo công việc'),
-          content: SizedBox(
-            width: 440,
-            child: SingleChildScrollView(
-              child: Form(
-                key: formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextFormField(
-                      controller: titleController,
-                      decoration: const InputDecoration(
-                        labelText: 'Tên công việc *',
-                        border: OutlineInputBorder(),
-                      ),
-                      validator: (value) =>
-                          value == null || value.trim().isEmpty
-                          ? 'Vui lòng nhập tên công việc'
-                          : null,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: descriptionController,
-                      minLines: 2,
-                      maxLines: 4,
-                      decoration: const InputDecoration(
-                        labelText: 'Mô tả',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      initialValue: assigneeId,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Người thực hiện',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: _members
-                          .map((member) {
-                            final id = _stringValue(member, const [
-                              'id',
-                              '_id',
-                              'userId',
-                              'user_id',
-                            ]);
-                            return DropdownMenuItem(
-                              value: id,
-                              child: Text(
-                                _memberName(member),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            );
-                          })
-                          .where((item) => item.value?.isNotEmpty == true)
-                          .toList(),
-                      onChanged: (value) =>
-                          setDialogState(() => assigneeId = value),
-                      validator: (value) => value == null
-                          ? 'Vui lòng chọn người thực hiện'
-                          : null,
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      initialValue: priority,
-                      decoration: const InputDecoration(
-                        labelText: 'Mức độ ưu tiên',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'low', child: Text('Thấp')),
-                        DropdownMenuItem(
-                          value: 'medium',
-                          child: Text('Trung bình'),
-                        ),
-                        DropdownMenuItem(value: 'high', child: Text('Cao')),
-                      ],
-                      onChanged: (value) {
-                        if (value != null) {
-                          setDialogState(() => priority = value);
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      initialValue: outputType,
-                      decoration: const InputDecoration(
-                        labelText: 'Loại đầu ra',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'docs',
-                          child: Text('Google Docs / Tài liệu'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'drive',
-                          child: Text('Google Drive'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'sheet',
-                          child: Text('Google Sheets / Bảng tính'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'file',
-                          child: Text('Tệp đính kèm'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'none',
-                          child: Text('Không yêu cầu đầu ra'),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        if (value == null) {
-                          return;
-                        }
-                        setDialogState(() {
-                          outputType = value;
-                          if (value == 'none') {
-                            outputRequired = false;
-                          }
-                        });
-                      },
-                    ),
-                    CheckboxListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Bắt buộc nộp đường dẫn/kết quả'),
-                      value: outputType == 'none' ? false : outputRequired,
-                      onChanged: outputType == 'none'
-                          ? null
-                          : (value) => setDialogState(
-                              () => outputRequired = value ?? true,
-                            ),
-                      controlAffinity: ListTileControlAffinity.leading,
-                    ),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: OutlinedButton.icon(
-                        onPressed: () async {
-                          final picked = await showDatePicker(
-                            context: context,
-                            initialDate: dueDate ?? DateTime.now(),
-                            firstDate: DateTime.now().subtract(
-                              const Duration(days: 1),
-                            ),
-                            lastDate: DateTime(2100),
-                          );
-                          if (picked != null) {
-                            setDialogState(() => dueDate = picked);
-                          }
-                        },
-                        icon: const Icon(Icons.calendar_month_outlined),
-                        label: Text(
-                          dueDate == null
-                              ? 'Chọn hạn hoàn thành'
-                              : 'Hạn: ${_formatDate(dueDate!.toIso8601String())}',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Hủy'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (!formKey.currentState!.validate()) {
-                  return;
-                }
-                Navigator.pop(dialogContext, {
-                  'title': titleController.text.trim(),
-                  'description': descriptionController.text.trim(),
-                  'assigneeId': assigneeId,
-                  'priority': priority,
-                  'dueDate': dueDate?.toIso8601String(),
-                  'outputType': outputType,
-                  'outputRequired': outputType != 'none' && outputRequired,
-                });
-              },
-              child: const Text('Tạo công việc'),
-            ),
-          ],
-        ),
+      builder: (_) => _CreateTaskDialog(
+        memberItems: memberItems,
+        formatDate: _formatDate,
       ),
     );
-    titleController.dispose();
-    descriptionController.dispose();
-
     if (result == null || !mounted) {
       return;
     }
@@ -618,91 +462,51 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
   }
 
   Future<void> _submitTask(Map<String, dynamic> task) async {
-    final controller = TextEditingController(
-      text: _stringValue(task, const [
-        'outputLink',
-        'output_link',
-        'submissionUrl',
-        'submission_url',
-      ]),
-    );
+    final initialLink = _stringValue(task, const [
+      'outputLink',
+      'output_link',
+      'submissionUrl',
+      'submission_url',
+    ]);
     final outputType = _stringValue(task, const [
       'outputType',
       'output_type',
     ], fallback: 'docs');
     final outputRequired =
         _firstValue(task, const ['outputRequired', 'output_required']) != false;
-    final formKey = GlobalKey<FormState>();
+    final needsLink = outputType != 'none';
+    final title = _stringValue(task, const [
+      'title',
+      'name',
+    ], fallback: 'Công việc');
 
-    final result = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Gửi kết quả công việc'),
-        content: SizedBox(
-          width: 440,
-          child: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _stringValue(task, const [
-                    'title',
-                    'name',
-                  ], fallback: 'Công việc'),
-                ),
-                const SizedBox(height: 12),
-                if (outputType != 'none')
-                  TextFormField(
-                    controller: controller,
-                    minLines: 1,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      labelText: 'Đường dẫn kết quả',
-                      hintText: 'https://docs.google.com/...',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (value) {
-                      final text = value?.trim() ?? '';
-                      if (outputRequired && text.isEmpty) {
-                        return 'Vui lòng nhập đường dẫn kết quả.';
-                      }
-                      if (text.isNotEmpty) {
-                        final uri = Uri.tryParse(text);
-                        if (uri == null ||
-                            !uri.hasAuthority ||
-                            !['http', 'https'].contains(uri.scheme)) {
-                          return 'Vui lòng nhập URL bắt đầu bằng http:// hoặc https://';
-                        }
-                      }
-                      return null;
-                    },
-                  )
-                else
-                  const Text('Công việc này không yêu cầu đường dẫn đầu ra.'),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Hủy'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (outputType != 'none' && !formKey.currentState!.validate()) {
-                return;
-              }
-              Navigator.pop(dialogContext, controller.text.trim());
-            },
-            child: const Text('Gửi'),
-          ),
-        ],
-      ),
+    final result = await showTextPrompt(
+      context,
+      title: 'Gửi kết quả công việc',
+      message: needsLink
+          ? title
+          : '$title\n\nCông việc này không yêu cầu đường dẫn đầu ra.',
+      label: 'Đường dẫn kết quả',
+      hint: 'https://docs.google.com/...',
+      initialText: initialLink,
+      confirmLabel: 'Gửi',
+      maxLines: 3,
+      showField: needsLink,
+      validator: (text) {
+        if (outputRequired && text.isEmpty) {
+          return 'Vui lòng nhập đường dẫn kết quả.';
+        }
+        if (text.isNotEmpty) {
+          final uri = Uri.tryParse(text);
+          if (uri == null ||
+              !uri.hasAuthority ||
+              !['http', 'https'].contains(uri.scheme)) {
+            return 'Vui lòng nhập URL bắt đầu bằng http:// hoặc https://';
+          }
+        }
+        return null;
+      },
     );
-    controller.dispose();
     if (result == null || !mounted) {
       return;
     }
@@ -712,17 +516,28 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
       _message('Task không có ID hợp lệ.');
       return;
     }
+    String? warning;
     await _runAction(
-      () => _taskService.transition(
-        widget.projectId,
-        id,
-        _isLeader && _isMyTask(task) ? 'completed' : 'pending_review',
-        outputLink: result,
-      ),
+      () async {
+        final updated = await _taskService.transition(
+          widget.projectId,
+          id,
+          _isLeader && _isMyTask(task) ? 'completed' : 'pending_review',
+          outputLink: result,
+        );
+        warning = updated['resourceError']?.toString();
+      },
       successMessage: _isLeader
           ? 'Đã cập nhật kết quả công việc.'
           : 'Đã gửi công việc để Leader duyệt.',
     );
+    _warnResource(warning);
+  }
+
+  /// Công việc đã hoàn thành nhưng chưa ghi được vào Tài nguyên.
+  void _warnResource(String? warning) {
+    if (warning == null || !mounted) return;
+    _message('Đã hoàn thành nhưng chưa cập nhật được Tài nguyên: $warning');
   }
 
   Future<void> _reviewTask(
@@ -731,36 +546,15 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
   }) async {
     String? comment;
     if (!approve) {
-      final controller = TextEditingController();
-      comment = await showDialog<String>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Yêu cầu chỉnh sửa'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            minLines: 2,
-            maxLines: 5,
-            decoration: const InputDecoration(
-              labelText: 'Nhận xét',
-              hintText: 'Nêu rõ nội dung cần chỉnh sửa',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Hủy'),
-            ),
-            FilledButton(
-              onPressed: () =>
-                  Navigator.pop(dialogContext, controller.text.trim()),
-              child: const Text('Gửi yêu cầu'),
-            ),
-          ],
-        ),
+      comment = await showTextPrompt(
+        context,
+        title: 'Yêu cầu chỉnh sửa',
+        label: 'Nhận xét',
+        hint: 'Nêu rõ nội dung cần chỉnh sửa',
+        confirmLabel: 'Gửi yêu cầu',
+        minLines: 2,
+        maxLines: 5,
       );
-      controller.dispose();
       if (comment == null || !mounted) {
         return;
       }
@@ -771,17 +565,22 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
       _message('Task không có ID hợp lệ.');
       return;
     }
+    String? warning;
     await _runAction(
-      () => _taskService.transition(
-        widget.projectId,
-        id,
-        approve ? 'completed' : 'revision_required',
-        comment: comment,
-      ),
+      () async {
+        final updated = await _taskService.transition(
+          widget.projectId,
+          id,
+          approve ? 'completed' : 'revision_required',
+          comment: comment,
+        );
+        warning = updated['resourceError']?.toString();
+      },
       successMessage: approve
           ? 'Đã duyệt công việc.'
           : 'Đã gửi yêu cầu chỉnh sửa.',
     );
+    _warnResource(warning);
   }
 
   Future<void> _openLink(String rawLink) async {
@@ -809,9 +608,16 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
       child: Container(
         padding: const EdgeInsets.all(15),
         decoration: BoxDecoration(
-          color: Colors.white,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              color.withValues(alpha: 0.18),
+              color.withValues(alpha: 0.05),
+            ],
+          ),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFECEBF2)),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -836,30 +642,12 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
   }
 
   Future<void> _addMemberByUsername() async {
-    final controller = TextEditingController();
-    final username = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Thêm thành viên'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Username'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Hủy'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext, controller.text.trim()),
-            child: const Text('Thêm'),
-          ),
-        ],
-      ),
+    final username = await showTextPrompt(
+      context,
+      title: 'Thêm thành viên',
+      label: 'Username',
+      confirmLabel: 'Thêm',
     );
-    controller.dispose();
     if (username == null || username.isEmpty || !mounted) return;
     await _runAction(
       () => _projectService.addMemberByUsername(widget.projectId, username),
@@ -878,86 +666,14 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
   Future<void> _editProject() async {
     final project = _project;
     if (project == null) return;
-    final nameController = TextEditingController(
-      text: _stringValue(project, const ['name'], fallback: 'Dự án'),
-    );
-    final descriptionController = TextEditingController(
-      text: _stringValue(project, const ['description']),
-    );
-    final tagController = TextEditingController(
-      text: _stringValue(project, const ['tag']),
-    );
-    final formKey = GlobalKey<FormState>();
-
-    final saved = await showDialog<bool>(
+    final values = await showDialog<Map<String, String>>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Cập nhật dự án'),
-        content: SizedBox(
-          width: 420,
-          child: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Tên dự án *',
-                    border: OutlineInputBorder(),
-                  ),
-                  validator: (v) => (v ?? '').trim().isEmpty
-                      ? 'Tên không được để trống'
-                      : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: descriptionController,
-                  minLines: 2,
-                  maxLines: 4,
-                  decoration: const InputDecoration(
-                    labelText: 'Mô tả',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: tagController,
-                  decoration: const InputDecoration(
-                    labelText: 'Thẻ / danh mục',
-                    hintText: 'mobile, marketing, research...',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Hủy'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (!formKey.currentState!.validate()) return;
-              Navigator.pop(dialogContext, true);
-            },
-            child: const Text('Lưu'),
-          ),
-        ],
+      builder: (_) => _EditProjectDialog(
+        name: _stringValue(project, const ['name'], fallback: 'Dự án'),
+        description: _stringValue(project, const ['description']),
+        tag: _stringValue(project, const ['tag']),
       ),
     );
-    final values = saved == true
-        ? {
-            'name': nameController.text.trim(),
-            'description': descriptionController.text.trim(),
-            'tag': tagController.text.trim(),
-          }
-        : null;
-    nameController.dispose();
-    descriptionController.dispose();
-    tagController.dispose();
     if (values == null || !mounted) return;
     await _runAction(
       () => _projectService.update(widget.projectId, values),
@@ -1246,6 +962,116 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
         ],
       ),
     );
+  }
+
+  String _resourceSubtitle(Map<String, dynamic> resource) {
+    final url = _stringValue(resource, const ['url']);
+    final who = _stringValue(resource, const ['uploadedBy']);
+    final created = resource['createdAt'];
+    final parts = <String>[
+      if (url.isNotEmpty) url else 'Chưa có đường dẫn',
+      if (who.isNotEmpty) 'Bởi ${_memberName(who)}',
+      if (created is Timestamp) _formatDate(created.toDate().toIso8601String()),
+    ];
+    return parts.join(' • ');
+  }
+
+  IconData _resourceIcon(Map<String, dynamic> resource) {
+    final url = _stringValue(resource, const ['url']).toLowerCase();
+    if (url.contains('docs.google.com/spreadsheets')) {
+      return Icons.table_chart_outlined;
+    }
+    if (url.contains('docs.google.com') || url.contains('/document/')) {
+      return Icons.description_outlined;
+    }
+    if (url.contains('drive.google.com')) return Icons.folder_outlined;
+    return Icons.link_rounded;
+  }
+
+  Widget _buildResources() {
+    final Widget content;
+    if (_resourcesError != null) {
+      content = ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(24),
+        children: [
+          const SizedBox(height: 80),
+          const Icon(Icons.lock_outline_rounded, size: 48, color: _textSecondary),
+          const SizedBox(height: 12),
+          const Center(
+            child: Text(
+              'Không tải được tài nguyên',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _resourcesError!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: _textSecondary),
+          ),
+        ],
+      );
+    } else if (_resources.isEmpty) {
+      content = ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: const [
+          SizedBox(height: 120),
+          Icon(Icons.folder_open_rounded, size: 52, color: Color(0xFFD0CEDC)),
+          SizedBox(height: 12),
+          Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                'Chưa có tài nguyên. Khi một công việc có đường dẫn kết quả được '
+                'hoàn thành, nó sẽ tự động xuất hiện ở đây.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: _textSecondary, height: 1.4),
+              ),
+            ),
+          ),
+        ],
+      );
+    } else {
+      content = ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        itemCount: _resources.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 10),
+        itemBuilder: (context, index) {
+          final resource = _resources[index];
+          final url = _stringValue(resource, const ['url']);
+          return Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFECEBF2)),
+            ),
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: teamUpPurple.withValues(alpha: 0.13),
+                child: Icon(_resourceIcon(resource), color: teamUpDarkPurple),
+              ),
+              title: Text(
+                _stringValue(resource, const ['name'], fallback: 'Tài nguyên'),
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              subtitle: Text(
+                _resourceSubtitle(resource),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12),
+              ),
+              trailing: url.isEmpty
+                  ? null
+                  : const Icon(Icons.open_in_new_rounded, size: 18),
+              onTap: url.isEmpty ? null : () => _openLink(url),
+            ),
+          );
+        },
+      );
+    }
+    return RefreshIndicator(onRefresh: _loadPage, child: content);
   }
 
   Widget _buildTasks() {
@@ -1574,6 +1400,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
           tabs: const [
             Tab(text: 'Tổng quan'),
             Tab(text: 'Công việc'),
+            Tab(text: 'Tài nguyên'),
           ],
         ),
       ),
@@ -1623,7 +1450,11 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
               children: [
                 TabBarView(
                   controller: _tabController,
-                  children: [_buildOverview(project), _buildTasks()],
+                  children: [
+                    _buildOverview(project),
+                    _buildTasks(),
+                    _buildResources(),
+                  ],
                 ),
                 if (_busy)
                   const Positioned(
@@ -1646,6 +1477,293 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
               label: const Text('Tạo công việc'),
             )
           : null,
+    );
+  }
+}
+
+/// Hộp thoại tạo công việc. Controller thuộc về State nên chỉ bị hủy sau khi
+/// animation đóng kết thúc (tránh lỗi "used after being disposed").
+class _CreateTaskDialog extends StatefulWidget {
+  const _CreateTaskDialog({
+    required this.memberItems,
+    required this.formatDate,
+  });
+
+  final List<DropdownMenuItem<String>> memberItems;
+  final String Function(String? value) formatDate;
+
+  @override
+  State<_CreateTaskDialog> createState() => _CreateTaskDialogState();
+}
+
+class _CreateTaskDialogState extends State<_CreateTaskDialog> {
+  final _titleController = TextEditingController();
+  final _descriptionController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  String? _assigneeId;
+  String _priority = 'medium';
+  DateTime? _dueDate;
+  String _outputType = 'docs';
+  bool _outputRequired = true;
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _dueDate ?? DateTime.now(),
+      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+      lastDate: DateTime(2100),
+    );
+    if (picked != null && mounted) setState(() => _dueDate = picked);
+  }
+
+  void _submit() {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    Navigator.pop(context, {
+      'title': _titleController.text.trim(),
+      'description': _descriptionController.text.trim(),
+      'assigneeId': _assigneeId,
+      'priority': _priority,
+      'dueDate': _dueDate?.toIso8601String(),
+      'outputType': _outputType,
+      'outputRequired': _outputType != 'none' && _outputRequired,
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Tạo công việc'),
+      content: SizedBox(
+        width: 440,
+        child: SingleChildScrollView(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: _titleController,
+                  decoration: const InputDecoration(
+                    labelText: 'Tên công việc *',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? 'Vui lòng nhập tên công việc'
+                      : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _descriptionController,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Mô tả',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: _assigneeId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Người thực hiện',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: widget.memberItems,
+                  onChanged: (value) => setState(() => _assigneeId = value),
+                  validator: (value) =>
+                      value == null ? 'Vui lòng chọn người thực hiện' : null,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: _priority,
+                  decoration: const InputDecoration(
+                    labelText: 'Mức độ ưu tiên',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'low', child: Text('Thấp')),
+                    DropdownMenuItem(
+                      value: 'medium',
+                      child: Text('Trung bình'),
+                    ),
+                    DropdownMenuItem(value: 'high', child: Text('Cao')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) setState(() => _priority = value);
+                  },
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: _outputType,
+                  decoration: const InputDecoration(
+                    labelText: 'Loại đầu ra',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'docs',
+                      child: Text('Google Docs / Tài liệu'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'drive',
+                      child: Text('Google Drive'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'sheet',
+                      child: Text('Google Sheets / Bảng tính'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'file',
+                      child: Text('Tệp đính kèm'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'none',
+                      child: Text('Không yêu cầu đầu ra'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() {
+                      _outputType = value;
+                      if (value == 'none') _outputRequired = false;
+                    });
+                  },
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Bắt buộc nộp đường dẫn/kết quả'),
+                  value: _outputType == 'none' ? false : _outputRequired,
+                  onChanged: _outputType == 'none'
+                      ? null
+                      : (value) =>
+                            setState(() => _outputRequired = value ?? true),
+                  controlAffinity: ListTileControlAffinity.leading,
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton.icon(
+                    onPressed: _pickDate,
+                    icon: const Icon(Icons.calendar_month_outlined),
+                    label: Text(
+                      _dueDate == null
+                          ? 'Chọn hạn hoàn thành'
+                          : 'Hạn: ${widget.formatDate(_dueDate!.toIso8601String())}',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Hủy'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('Tạo công việc')),
+      ],
+    );
+  }
+}
+
+/// Hộp thoại sửa thông tin dự án; trả về map name/description/tag.
+class _EditProjectDialog extends StatefulWidget {
+  const _EditProjectDialog({
+    required this.name,
+    required this.description,
+    required this.tag,
+  });
+
+  final String name;
+  final String description;
+  final String tag;
+
+  @override
+  State<_EditProjectDialog> createState() => _EditProjectDialogState();
+}
+
+class _EditProjectDialogState extends State<_EditProjectDialog> {
+  late final _name = TextEditingController(text: widget.name);
+  late final _description = TextEditingController(text: widget.description);
+  late final _tag = TextEditingController(text: widget.tag);
+  final _formKey = GlobalKey<FormState>();
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _description.dispose();
+    _tag.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    Navigator.pop(context, {
+      'name': _name.text.trim(),
+      'description': _description.text.trim(),
+      'tag': _tag.text.trim(),
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Cập nhật dự án'),
+      content: SizedBox(
+        width: 420,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: _name,
+                decoration: const InputDecoration(
+                  labelText: 'Tên dự án *',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) =>
+                    (v ?? '').trim().isEmpty ? 'Tên không được để trống' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _description,
+                minLines: 2,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: 'Mô tả',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _tag,
+                decoration: const InputDecoration(
+                  labelText: 'Thẻ / danh mục',
+                  hintText: 'mobile, marketing, research...',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Hủy'),
+        ),
+        FilledButton(onPressed: _save, child: const Text('Lưu')),
+      ],
     );
   }
 }
