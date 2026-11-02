@@ -1021,7 +1021,8 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [Color(0xFFE3DCF5), Color(0xFFF8F6FC)],
+              stops: [0, .72, 1],
+              colors: [Colors.white, Colors.white, Color(0xFFFFF1F7)],
             ),
           ),
           child: ListView(

@@ -744,67 +744,81 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               'createdAt': room['updatedAt'],
             },
         ];
-        return Column(
+        return Stack(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton.icon(
-                  onPressed: _startingChat ? null : _newConversation,
-                  icon: const Icon(Icons.add_comment_outlined),
-                  label: Text(_startingChat ? 'Đang mở…' : 'Trò chuyện mới'),
-                ),
-              ),
-            ),
-            if (_directError != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Chat riêng: $_directError',
-                        style: const TextStyle(fontSize: 12),
+            Positioned.fill(
+              child: Column(
+                children: [
+                  if (_directError != null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Chat riêng: $_directError',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: _loadDirect,
+                            child: const Text('Thử lại'),
+                          ),
+                        ],
                       ),
                     ),
-                    TextButton(
-                      onPressed: _loadDirect,
-                      child: const Text('Thử lại'),
+                  Expanded(
+                    child: ProjectChatList(
+                      unreadCounts: _unreadCounts,
+                      projects: combined,
+                      previews: {
+                        ..._previews,
+                        for (final room in _directRooms)
+                          'direct:${room['id']}': room['lastMessage'] == null
+                              ? null
+                              : {
+                                  ...Map<String, dynamic>.from(
+                                    room['lastMessage'] as Map,
+                                  ),
+                                  'kind': 'user',
+                                },
+                      },
+                      previewErrors: _previewErrors,
+                      currentUserId: widget.session?.auth.currentUserId ?? '',
+                      loading: store.projectsLoading,
+                      error: store.projectsError,
+                      onSelected: (id) {
+                        if (id.startsWith('direct:')) {
+                          final room = _directRooms.firstWhere(
+                            (r) => 'direct:${r['id']}' == id,
+                          );
+                          _openDirect(
+                            room['id'].toString(),
+                            room['name'].toString(),
+                          );
+                        } else {
+                          _pickProject(id);
+                        }
+                      },
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            Expanded(
-              child: ProjectChatList(
-                unreadCounts: _unreadCounts,
-                projects: combined,
-                previews: {
-                  ..._previews,
-                  for (final room in _directRooms)
-                    'direct:${room['id']}': room['lastMessage'] == null
-                        ? null
-                        : {
-                            ...Map<String, dynamic>.from(
-                              room['lastMessage'] as Map,
-                            ),
-                            'kind': 'user',
-                          },
-                },
-                previewErrors: _previewErrors,
-                currentUserId: widget.session?.auth.currentUserId ?? '',
-                loading: store.projectsLoading,
-                error: store.projectsError,
-                onSelected: (id) {
-                  if (id.startsWith('direct:')) {
-                    final room = _directRooms.firstWhere(
-                      (r) => 'direct:${r['id']}' == id,
-                    );
-                    _openDirect(room['id'].toString(), room['name'].toString());
-                  } else {
-                    _pickProject(id);
-                  }
-                },
+            ),
+            Positioned(
+              right: 16,
+              bottom: 18,
+              child: FilledButton.icon(
+                onPressed: _startingChat ? null : _newConversation,
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 16,
+                  ),
+                  elevation: 4,
+                ),
+                icon: const Icon(Icons.add_comment_outlined),
+                label: Text(_startingChat ? 'Đang mở…' : 'Trò chuyện mới'),
               ),
             ),
           ],

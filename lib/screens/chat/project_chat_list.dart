@@ -200,7 +200,7 @@ class _ProjectChatListState extends State<ProjectChatList> {
                     message: 'Thử tìm bằng tên khác.',
                   )
                 : ListView.separated(
-                    padding: const EdgeInsets.only(bottom: 24),
+                    padding: const EdgeInsets.only(bottom: 100),
                     itemCount: projects.length,
                     separatorBuilder: (_, _) => const SizedBox(height: 6),
                     itemBuilder: (context, index) {
