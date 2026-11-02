@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/theme/app_colors.dart';
+import '../../widgets/motion.dart';
 import '../tasks/task_store.dart';
 import '../projects/create_project_screen.dart';
 import '../projects/join_project_screen.dart';
@@ -79,22 +81,39 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(14),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              color.withValues(alpha: 0.20),
+              color.withValues(alpha: 0.07),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withValues(alpha: 0.18)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, size: 20, color: color),
-            const SizedBox(height: 8),
-            Text(
-              '$value',
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Icon(icon, size: 17, color: color),
+            ),
+            const SizedBox(height: 10),
+            AnimatedCount(
+              value,
               style: const TextStyle(
-                fontSize: 22,
+                fontSize: 24,
                 fontWeight: FontWeight.w800,
                 color: _textColor,
+                height: 1,
               ),
             ),
+            const SizedBox(height: 3),
             Text(
               label,
               style: const TextStyle(fontSize: 11, color: _secondaryColor),
@@ -111,6 +130,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     final today = DateTime(now.year, now.month, now.day);
     final doing = mine.where((t) => t['status'] == 'Đang làm').length;
     final review = mine.where((t) => t['status'] == 'Chờ duyệt').length;
+    final done = mine.where((t) => t['status'] == 'Hoàn thành').length;
     final overdue = mine.where((t) {
       if (t['status'] == 'Hoàn thành') return false;
       final due = DateTime.tryParse(t['dueDate']?.toString() ?? '');
@@ -119,19 +139,21 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     return Row(
       children: [
         _statTile('Đang làm', doing, Icons.play_circle_outline, teamUpPurple),
-        const SizedBox(width: 10),
+        const SizedBox(width: 8),
         _statTile(
           'Chờ duyệt',
           review,
           Icons.hourglass_empty_rounded,
-          teamUpGreen,
+          const Color(0xFFE1B32C),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 8),
+        _statTile('Hoàn thành', done, Icons.task_alt_rounded, teamUpGreen),
+        const SizedBox(width: 8),
         _statTile(
           'Quá hạn',
           overdue,
           Icons.warning_amber_rounded,
-          const Color(0xFFD94A4A),
+          teamUpPink,
         ),
       ],
     );
@@ -275,9 +297,9 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
         label: Text(label),
         selected: selected,
         showCheckmark: false,
-        selectedColor: teamUpDarkPurple,
+        selectedColor: teamUpPurple,
         backgroundColor: Colors.white,
-        side: BorderSide(color: selected ? teamUpDarkPurple : _borderColor),
+        side: BorderSide(color: selected ? teamUpPurple : _borderColor),
         labelStyle: TextStyle(
           fontSize: 12,
           color: selected ? Colors.white : _textColor,
@@ -307,7 +329,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     );
   }
 
-  Widget _buildProjectCard(Map<String, dynamic> project) {
+  Widget _buildProjectCard(Map<String, dynamic> project, int index) {
     final projectId = project['id'].toString();
     final name = project['name']?.toString() ?? 'Dự án';
     final tag = project['tag']?.toString() ?? 'Project';
@@ -317,7 +339,9 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     final progress = _projectProgress(projectId);
     final memberCount = _projectMemberCount(project);
 
-    return Semantics(
+    return FadeSlideIn(
+      index: index,
+      child: Semantics(
       button: true,
       label: 'Dự án $name, hoàn thành $progress%',
       child: Card(
@@ -331,7 +355,10 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
         ),
         child: InkWell(
           onTap: () => _openProject(project),
-          child: Padding(
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border(left: BorderSide(color: color, width: 5)),
+            ),
             padding: const EdgeInsets.all(14),
             child: Column(
               children: [
@@ -401,8 +428,8 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                                 value: value,
                                 minHeight: 7,
                                 backgroundColor: _borderColor,
-                                valueColor: const AlwaysStoppedAnimation<Color>(
-                                  teamUpGreen,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  progress >= 100 ? teamUpGreen : color,
                                 ),
                               ),
                         ),
@@ -437,6 +464,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
           ),
         ),
       ),
+    ),
     );
   }
 
@@ -447,23 +475,47 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
       builder: (context, _) {
         final projects = _filteredProjects;
         return Scaffold(
-          backgroundColor: Colors.white,
+          backgroundColor: _pageBackground,
           body: SafeArea(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
               children: [
-                Text(
-                  '$_greeting, $_displayName! 👋',
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: _textColor,
+                FadeSlideIn(
+                  child: Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      gradient: AppColors.heroGradient,
+                      borderRadius: BorderRadius.circular(22),
+                      boxShadow: [
+                        BoxShadow(
+                          color: teamUpPurple.withValues(alpha: 0.35),
+                          blurRadius: 18,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '$_greeting, $_displayName! 👋',
+                          style: const TextStyle(
+                            fontSize: 21,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Cùng nhau tạo nên những dự án tuyệt vời!',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Color(0xE6FFFFFF),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Cùng nhau tạo nên những dự án tuyệt vời!',
-                  style: TextStyle(fontSize: 13, color: _secondaryColor),
                 ),
                 const SizedBox(height: 18),
                 _buildStats(),
@@ -484,7 +536,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                             icon: const Icon(Icons.close),
                           ),
                     filled: true,
-                    fillColor: _pageBackground,
+                    fillColor: Colors.white,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: const BorderSide(color: _borderColor),
@@ -544,20 +596,21 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                     ),
                   )
                 else
-                  ...projects.map(
-                    (project) => Padding(
+                  ...projects.indexed.map(
+                    (entry) => Padding(
                       padding: const EdgeInsets.only(bottom: 12),
-                      child: _buildProjectCard(project),
+                      child: _buildProjectCard(entry.$2, entry.$1),
                     ),
                   ),
               ],
             ),
           ),
-          floatingActionButton: FloatingActionButton(
+          floatingActionButton: FloatingActionButton.extended(
             onPressed: _showProjectOptions,
-            backgroundColor: teamUpDarkPurple,
+            backgroundColor: teamUpGreen,
             foregroundColor: Colors.white,
-            child: const Icon(Icons.add),
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Dự án'),
           ),
         );
       },

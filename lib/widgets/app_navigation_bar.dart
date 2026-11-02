@@ -42,13 +42,32 @@ const appDestinations = [
   ),
 ];
 
+/// Màu nhấn riêng cho từng tab để thanh điều hướng bớt đơn điệu.
+const _tabAccents = [
+  AppColors.purple,
+  AppColors.green,
+  Color(0xFFE1B32C),
+  AppColors.pink,
+  AppColors.darkPurple,
+];
+
+Color appDestinationAccent(int index) => _tabAccents[index % _tabAccents.length];
+
 Widget appDestinationIcon(
   int index, {
   required bool selected,
   ValueListenable<int>? unread,
 }) {
   final destination = appDestinations[index];
-  final icon = Icon(selected ? destination.selectedIcon : destination.icon);
+  final icon = AnimatedScale(
+    scale: selected ? 1.12 : 1.0,
+    duration: const Duration(milliseconds: 200),
+    curve: Curves.easeOutBack,
+    child: Icon(
+      selected ? destination.selectedIcon : destination.icon,
+      color: selected ? appDestinationAccent(index) : AppColors.textSecondary,
+    ),
+  );
   if (index != 4 || unread == null) return icon;
   return ValueListenableBuilder<int>(
     valueListenable: unread,

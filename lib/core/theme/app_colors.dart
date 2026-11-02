@@ -22,4 +22,22 @@ abstract final class AppColors {
   static const dangerSoft = Color(0xFFFCEEEE);
   static const successSoft = Color(0xFFEAF5EC);
   static const purpleSoft = Color(0xFFF0EEF7);
+  static const pinkSoft = Color(0xFFFDEBF5);
+  static const greenSoft = Color(0xFFEAF5EC);
+  static const yellowSoft = Color(0xFFFFF6D6);
+  static const pageTint = Color(0xFFF7F7FB);
+
+  /// Gradient thương hiệu: tím -> hồng -> xanh lá.
+  static const brandGradient = LinearGradient(
+    begin: Alignment.centerLeft,
+    end: Alignment.centerRight,
+    colors: [purple, pink, green],
+  );
+
+  /// Gradient cho khối hero (tím đậm -> tím -> hồng).
+  static const heroGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [darkPurple, purple, pink],
+  );
 }

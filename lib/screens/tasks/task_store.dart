@@ -169,15 +169,17 @@ class TaskStore extends ChangeNotifier {
     return value?.toString();
   }
 
+  /// Dừng mọi listener và xóa dữ liệu. An toàn khi bị gọi nhiều lần/đồng thời
+  /// (đăng xuất kích hoạt cả `signOut` lẫn `authStateChanges`): trạng thái được
+  /// dọn đồng bộ trước, sau đó mới chờ hủy từng subscription trên bản sao danh
+  /// sách, nên không còn lỗi ConcurrentModificationError.
   Future<void> stop() async {
-    await _projectsSub?.cancel();
+    final subs = <StreamSubscription>[
+      if (_projectsSub != null) _projectsSub!,
+      ..._memberSubs.values,
+      ..._taskSubs.values,
+    ];
     _projectsSub = null;
-    for (final sub in _memberSubs.values) {
-      await sub.cancel();
-    }
-    for (final sub in _taskSubs.values) {
-      await sub.cancel();
-    }
     _memberSubs.clear();
     _taskSubs.clear();
     projectsLoading = true;
@@ -187,6 +189,16 @@ class TaskStore extends ChangeNotifier {
     tasks.clear();
     lastError = null;
     notifyListeners();
+
+    await Future.wait(
+      subs.map((sub) async {
+        try {
+          await sub.cancel();
+        } catch (_) {
+          // Hủy listener thất bại không được phép chặn đăng xuất.
+        }
+      }),
+    );
   }
 
   // =========================================================
@@ -336,7 +348,9 @@ class TaskStore extends ChangeNotifier {
   // 8. GỬI KẾT QUẢ
   // =========================================================
 
-  Future<void> submitTask(String taskId, {String outputLink = ''}) async {
+  /// Trả về cảnh báo (nếu có) khi công việc đã hoàn thành nhưng chưa cập nhật
+  /// được mục Tài nguyên của dự án; null nếu mọi thứ ổn.
+  Future<String?> submitTask(String taskId, {String outputLink = ''}) async {
     final task = _taskById(taskId);
     if (task == null) throw const ServiceException('Không tìm thấy công việc.');
     final link = outputLink.trim();
@@ -348,7 +362,7 @@ class TaskStore extends ChangeNotifier {
         'Công việc này yêu cầu cung cấp kết quả đầu ra.',
       );
     }
-    await _tasksService.transition(
+    final result = await _tasksService.transition(
       task['projectId'].toString(),
       taskId,
       roleInProject(task['projectId'].toString()) == 'Leader'
@@ -356,22 +370,24 @@ class TaskStore extends ChangeNotifier {
           : TaskStatus.pendingReview,
       outputLink: link.isEmpty ? null : link,
     );
+    return result['resourceError']?.toString();
   }
 
   // =========================================================
   // 9. LEADER DUYỆT CÔNG VIỆC
   // =========================================================
 
-  Future<void> approveTask(String taskId, {String comment = ''}) async {
+  Future<String?> approveTask(String taskId, {String comment = ''}) async {
     final task = _taskById(taskId);
     if (task == null) throw const ServiceException('Không tìm thấy công việc.');
     final note = comment.trim();
-    await _tasksService.transition(
+    final result = await _tasksService.transition(
       task['projectId'].toString(),
       taskId,
       TaskStatus.completed,
       comment: note.isEmpty ? null : note,
     );
+    return result['resourceError']?.toString();
   }
 
   // =========================================================

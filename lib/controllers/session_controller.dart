@@ -95,11 +95,13 @@ class SessionController extends ChangeNotifier {
 
   Future<void> signOut() async {
     await push.disable();
-    await auth.signOut();
+    // Dừng listener và cập nhật UI trước khi thu hồi phiên Firebase.
+    _authEpoch++;
     await TaskStore.instance.stop();
     user = null;
     startupError = null;
     notifyListeners();
+    await auth.signOut();
   }
 
   @override

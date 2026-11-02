@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../widgets/motion.dart';
+import '../../widgets/prompt_dialog.dart';
+import 'task_calendar.dart';
 import 'task_store.dart';
 
 const Color teamUpGreen = Color(0xFF439751);
@@ -24,6 +27,9 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
   final TaskStore _store = TaskStore.instance;
 
   late final TabController _tabController;
+
+  /// 0 = danh sách theo trạng thái, 1 = lịch deadline.
+  int _viewMode = 0;
 
   static const List<String> _statuses = [
     'Cần làm',
@@ -188,84 +194,44 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
   }
 
   Future<void> _submitTask(Map<String, dynamic> task) async {
-    final controller = TextEditingController(
-      text: task['outputLink']?.toString() ?? '',
-    );
-
     final outputType = task['outputType']?.toString() ?? 'none';
     final outputRequired = task['outputRequired'] == true;
+    final needsLink = outputType != 'none';
+    final title = task['title']?.toString() ?? 'Công việc';
 
-    final result = await showDialog<String?>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Gửi kết quả công việc'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(task['title']?.toString() ?? 'Công việc'),
-              if (outputType != 'none') ...[
-                const SizedBox(height: 12),
-                Text(
-                  outputRequired
-                      ? 'Công việc này yêu cầu đầu ra.'
-                      : 'Bạn có thể bổ sung đường dẫn kết quả.',
-                  style: const TextStyle(color: _textSecondary, fontSize: 13),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: controller,
-                  minLines: 1,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: 'Đường dẫn kết quả',
-                    hintText: 'https://...',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Hủy'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final link = controller.text.trim();
-
-                if (outputType != 'none' && outputRequired && link.isEmpty) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    const SnackBar(
-                      content: Text('Vui lòng nhập đường dẫn kết quả.'),
-                    ),
-                  );
-                  return;
-                }
-
-                Navigator.of(dialogContext).pop(link);
-              },
-              child: const Text('Gửi'),
-            ),
-          ],
-        );
-      },
+    final result = await showTextPrompt(
+      context,
+      title: 'Gửi kết quả công việc',
+      message: needsLink
+          ? '$title\n\n${outputRequired ? 'Công việc này yêu cầu đầu ra.' : 'Bạn có thể bổ sung đường dẫn kết quả.'}'
+          : title,
+      label: 'Đường dẫn kết quả',
+      hint: 'https://...',
+      initialText: task['outputLink']?.toString() ?? '',
+      confirmLabel: 'Gửi',
+      maxLines: 3,
+      showField: needsLink,
+      validator: (text) => outputRequired && text.isEmpty
+          ? 'Vui lòng nhập đường dẫn kết quả.'
+          : null,
     );
 
-    controller.dispose();
-
-    if (result == null) {
+    if (result == null || !mounted) {
       return;
     }
 
     try {
-      await _store.submitTask(task['id'].toString(), outputLink: result);
+      final warning = await _store.submitTask(
+        task['id'].toString(),
+        outputLink: result,
+      );
 
+      if (!mounted) return;
       setState(() {});
       _showMessage(
-        _store.roleInProject(task['projectId'].toString()) == 'Leader'
+        warning != null
+            ? 'Đã hoàn thành nhưng chưa cập nhật được Tài nguyên: $warning'
+            : _store.roleInProject(task['projectId'].toString()) == 'Leader'
             ? 'Đã hoàn thành công việc.'
             : 'Đã gửi công việc cho Leader duyệt.',
       );
@@ -280,49 +246,29 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
   }) async {
     if (approve) {
       try {
-        await _store.approveTask(task['id'].toString());
+        final warning = await _store.approveTask(task['id'].toString());
+        if (!mounted) return;
         setState(() {});
-        _showMessage('Đã duyệt công việc.');
+        _showMessage(
+          warning != null
+              ? 'Đã duyệt nhưng chưa cập nhật được Tài nguyên: $warning'
+              : 'Đã duyệt công việc.',
+        );
       } catch (e) {
         _showMessage(e.toString());
       }
       return;
     }
 
-    final controller = TextEditingController();
-
-    final comment = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Yêu cầu chỉnh sửa'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            minLines: 2,
-            maxLines: 5,
-            decoration: const InputDecoration(
-              labelText: 'Nhận xét',
-              hintText: 'Nêu rõ phần cần chỉnh sửa',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Hủy'),
-            ),
-            FilledButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(controller.text.trim()),
-              child: const Text('Gửi yêu cầu'),
-            ),
-          ],
-        );
-      },
+    final comment = await showTextPrompt(
+      context,
+      title: 'Yêu cầu chỉnh sửa',
+      label: 'Nhận xét',
+      hint: 'Nêu rõ phần cần chỉnh sửa',
+      confirmLabel: 'Gửi yêu cầu',
+      minLines: 2,
+      maxLines: 5,
     );
-
-    controller.dispose();
 
     if (comment == null || !mounted) {
       return;
@@ -330,6 +276,7 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
 
     try {
       await _store.requestTaskChanges(task['id'].toString(), comment: comment);
+      if (!mounted) return;
       setState(() {});
       _showMessage('Đã yêu cầu chỉnh sửa công việc.');
     } catch (e) {
@@ -346,15 +293,28 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
+  /// Mỗi cột trạng thái một màu riêng.
+  Color _tabColor(int index) {
+    const colors = [
+      _textSecondary, // Cần làm
+      Color(0xFF4285F4), // Đang làm
+      teamUpPink, // Cần sửa
+      Color(0xFFDB9B18), // Chờ duyệt
+      teamUpGreen, // Cần bạn duyệt
+    ];
+    return colors[index.clamp(0, colors.length - 1)];
+  }
+
   TabBar _buildStatusTabs() {
     return TabBar(
       controller: _tabController,
       isScrollable: true,
       tabAlignment: TabAlignment.start,
-      labelColor: teamUpDarkPurple,
+      labelColor: _tabColor(_tabController.index),
       unselectedLabelColor: _textSecondary,
-      indicatorColor: teamUpPurple,
+      indicatorColor: _tabColor(_tabController.index),
       indicatorWeight: 3,
+      indicatorSize: TabBarIndicatorSize.label,
       dividerColor: const Color(0xFFECEBF2),
       tabs: _statuses.map((status) {
         final count = _countForStatus(status);
@@ -368,7 +328,7 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                 decoration: BoxDecoration(
                   color: _tabController.index == _statuses.indexOf(status)
-                      ? teamUpPurple.withValues(alpha: 0.15)
+                      ? _tabColor(_statuses.indexOf(status)).withValues(alpha: 0.16)
                       : const Color(0xFFF0EFF5),
                   borderRadius: BorderRadius.circular(20),
                 ),
@@ -422,7 +382,11 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
         itemCount: tasks.length,
         separatorBuilder: (_, _) => const SizedBox(height: 12),
         itemBuilder: (context, index) {
-          return _buildTaskCard(tasks[index], status);
+          return FadeSlideIn(
+            key: ValueKey(tasks[index]['id']),
+            index: index,
+            child: _buildTaskCard(tasks[index], status),
+          );
         },
       ),
     );
@@ -446,20 +410,62 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
     final canReview = isLeader && status == 'Chờ duyệt';
 
     return Container(
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: const Color(0xFFECEBF2)),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x08000000),
-            blurRadius: 12,
-            offset: Offset(0, 4),
+            color: Color(0x0F4D4379),
+            blurRadius: 14,
+            offset: Offset(0, 5),
           ),
         ],
       ),
-      child: Column(
+      clipBehavior: Clip.antiAlias,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(width: 5, color: statusColor),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: _buildTaskCardBody(
+                  task,
+                  currentTab,
+                  project,
+                  projectColor,
+                  status,
+                  statusColor,
+                  assigneeId,
+                  canStart,
+                  canSubmit,
+                  canReview,
+                  isReviewTab,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTaskCardBody(
+    Map<String, dynamic> task,
+    String currentTab,
+    Map<String, dynamic>? project,
+    Color projectColor,
+    String status,
+    Color statusColor,
+    String assigneeId,
+    bool canStart,
+    bool canSubmit,
+    bool canReview,
+    bool isReviewTab,
+  ) {
+    return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -636,8 +642,46 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
             ),
           ],
         ],
+    );
+  }
+
+  Widget _buildViewToggle() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+      child: SizedBox(
+        width: double.infinity,
+        child: SegmentedButton<int>(
+          showSelectedIcon: false,
+          segments: const [
+            ButtonSegment(
+              value: 0,
+              icon: Icon(Icons.view_list_rounded, size: 18),
+              label: Text('Công việc'),
+            ),
+            ButtonSegment(
+              value: 1,
+              icon: Icon(Icons.calendar_month_rounded, size: 18),
+              label: Text('Lịch deadline'),
+            ),
+          ],
+          selected: {_viewMode},
+          onSelectionChanged: (value) =>
+              setState(() => _viewMode = value.first),
+        ),
       ),
     );
+  }
+
+  /// Task của tôi + task tôi cần duyệt (không trùng).
+  List<Map<String, dynamic>> _myCalendarTasks() {
+    final byId = <String, Map<String, dynamic>>{};
+    for (final task in _store.tasksForCurrentUser()) {
+      byId[task['id'].toString()] = task;
+    }
+    for (final task in _store.tasksToReview()) {
+      byId[task['id'].toString()] = task;
+    }
+    return byId.values.toList();
   }
 
   @override
@@ -646,16 +690,30 @@ class _TaskBoardScreenState extends State<TaskBoardScreen>
       listenable: _store,
       builder: (context, _) => Scaffold(
         backgroundColor: _background,
-        appBar: AppBar(
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.transparent,
-          elevation: 0,
-          toolbarHeight: 0,
-          bottom: _buildStatusTabs(),
-        ),
-        body: TabBarView(
-          controller: _tabController,
-          children: _statuses.map(_buildTaskList).toList(),
+        body: Column(
+          children: [
+            Material(
+              color: Colors.white,
+              child: Column(
+                children: [
+                  _buildViewToggle(),
+                  if (_viewMode == 0) _buildStatusTabs(),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _viewMode == 0
+                  ? TabBarView(
+                      controller: _tabController,
+                      children: _statuses.map(_buildTaskList).toList(),
+                    )
+                  : TaskCalendarView(
+                      store: _store,
+                      myTasks: _myCalendarTasks(),
+                      teamTasks: List.of(_store.tasks),
+                    ),
+            ),
+          ],
         ),
       ),
     );
