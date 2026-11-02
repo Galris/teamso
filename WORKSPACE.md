@@ -16,6 +16,7 @@ Android Emulator dùng API `http://10.0.2.2:3000/api`. Thiết bị thật cần
 - Document URL chỉ nhận HTTP/HTTPS; bấm tài liệu có link để mở. Hủy không tạo mục, Lưu URL trống tạo tài liệu không link.
 - Meetings mới lưu `startsAt` và `endsAt` dạng timestamp, đồng thời giữ label tương thích dữ liệu cũ.
 - Votes cho 2–20 phương án khác nhau, mỗi phương án tối đa 120 ký tự; hỗ trợ nhiều lựa chọn, đổi hoặc bỏ hết phiếu.
+- Sau khi tạo bình chọn, mọi thành viên hiện tại có thể thêm đáp án bằng nút Thêm đáp án (tối đa 20). API chỉ thêm vào cuối danh sách, chống trùng và giữ nguyên chỉ số các phiếu cũ.
 - Votes cũ có ballots.option vẫn đọc được. Phiếu mới dùng ballots.options.
 - Xóa vote đánh dấu đang xóa để chặn ghi đồng thời rồi xóa cả cây bằng Admin SDK. Nếu cleanup gặp lỗi có thể gọi lại DELETE cùng ID; không cho tạo phiếu mới vào parent đã xóa.
 - Client chỉ đọc Workspace qua Firestore Rules. API kiểm tra token, membership, ownership và schema; không tin createdBy từ client.

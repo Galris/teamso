@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 
@@ -27,6 +28,7 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen>
     with SingleTickerProviderStateMixin {
   int _currentIndex = 0;
+  bool _profileOpen = false;
   StreamSubscription<RemoteMessage>? _foregroundPush;
   StreamSubscription<RemoteMessage>? _openedPush;
 
@@ -57,6 +59,7 @@ class _MainScreenState extends State<MainScreen>
   }
 
   final ValueNotifier<int> _unread = ValueNotifier<int>(0);
+  final ValueNotifier<int> _chatUnread = ValueNotifier<int>(0);
   late final AnimationController _fade = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 260),
@@ -65,11 +68,13 @@ class _MainScreenState extends State<MainScreen>
 
   static const _dests = appDestinations;
 
-  late final List<Widget> _screens = [
+  List<Widget> get _screens => [
     HomeScreen(userName: widget.session?.user?.name ?? ''),
     const TaskBoardScreen(),
     WorkspaceScreen(session: widget.session),
     ChatScreen(
+      active: _currentIndex == 3 && !_profileOpen,
+      unread: _chatUnread,
       session: widget.session,
       userName: widget.session?.user?.name ?? '',
     ),
@@ -82,21 +87,25 @@ class _MainScreenState extends State<MainScreen>
     _openedPush?.cancel();
     _fade.dispose();
     _unread.dispose();
+    _chatUnread.dispose();
     super.dispose();
   }
 
   Future<void> _openProfile() async {
     final session = widget.session;
     if (session == null) return;
+    setState(() => _profileOpen = true);
     final tab = await Navigator.of(context).push<int>(
       MaterialPageRoute<int>(
         builder: (_) => ProfileScreen(
           session: session,
           selectedTab: _currentIndex,
           unread: _unread,
+          chatUnread: _chatUnread,
         ),
       ),
     );
+    if (mounted) setState(() => _profileOpen = false);
     if (mounted && tab != null && tab >= 0 && tab < _dests.length) {
       setState(() => _currentIndex = tab);
     }
@@ -108,8 +117,12 @@ class _MainScreenState extends State<MainScreen>
     _fade.forward(from: 0);
   }
 
-  Widget _icon(int i, {required bool selected}) =>
-      appDestinationIcon(i, selected: selected, unread: _unread);
+  Widget _icon(int i, {required bool selected}) => appDestinationIcon(
+    i,
+    selected: selected,
+    unread: _unread,
+    chatUnread: _chatUnread,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -124,19 +137,195 @@ class _MainScreenState extends State<MainScreen>
 
     return Scaffold(
       appBar: AppBar(
+        toolbarHeight: 80,
+        backgroundColor: _currentIndex == 0
+            ? const Color(0xFF788CDD)
+            : _currentIndex == 3
+            ? const Color(0xFF7661AA)
+            : const Color(0xFF867CB3),
+        foregroundColor: Colors.white,
+        titleTextStyle: _currentIndex <= 2
+            ? const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              )
+            : null,
         title: AnimatedSwitcher(
           duration: const Duration(milliseconds: 220),
-          child: Text(
-            _dests[_currentIndex].title,
-            key: ValueKey(_currentIndex),
-          ),
-        ),
-        bottom: const PreferredSize(
-          preferredSize: Size.fromHeight(3),
-          child: DecoratedBox(
-            decoration: BoxDecoration(gradient: AppColors.brandGradient),
-            child: SizedBox(height: 3, width: double.infinity),
-          ),
+          child: _currentIndex == 0
+              ? Row(
+                  key: const ValueKey('home-brand'),
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 60,
+                      height: 60,
+                      child: Transform.scale(
+                        scale: 1.2,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            ImageFiltered(
+                              imageFilter: ui.ImageFilter.blur(
+                                sigmaX: 1.5,
+                                sigmaY: 1.5,
+                              ),
+                              child: ColorFiltered(
+                                colorFilter: const ColorFilter.mode(
+                                  Colors.white,
+                                  BlendMode.srcIn,
+                                ),
+                                child: Image.asset(
+                                  'assets/images/app_logo_transparent.png',
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
+                            ),
+                            Image.asset(
+                              'assets/images/app_logo_transparent.png',
+                              fit: BoxFit.contain,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const Text(
+                      'TeamUp',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -.7,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                )
+              : Row(
+                  key: ValueKey(_currentIndex),
+                  children: [
+                    if (_currentIndex == 1)
+                      const SizedBox(
+                        width: 52,
+                        height: 52,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Icon(
+                              Icons.assignment_turned_in_outlined,
+                              size: 46,
+                              color: Colors.white,
+                            ),
+                            Positioned(
+                              top: 0,
+                              right: 0,
+                              child: Icon(
+                                Icons.auto_awesome,
+                                size: 14,
+                                color: Color(0xFFFFD469),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else if (_currentIndex == 2)
+                      const SizedBox(
+                        width: 52,
+                        height: 52,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Positioned(
+                              top: 1,
+                              right: 5,
+                              child: Icon(
+                                Icons.description_rounded,
+                                size: 34,
+                                color: Colors.white,
+                              ),
+                            ),
+                            Positioned(
+                              bottom: 1,
+                              child: Icon(
+                                Icons.folder_rounded,
+                                size: 49,
+                                color: Color(0xFFBDA4EA),
+                              ),
+                            ),
+                            Positioned(
+                              bottom: 12,
+                              child: Icon(
+                                Icons.groups_rounded,
+                                size: 21,
+                                color: Colors.white,
+                              ),
+                            ),
+                            Positioned(
+                              top: 0,
+                              left: 0,
+                              child: Icon(
+                                Icons.auto_awesome,
+                                size: 14,
+                                color: Color(0xFFFFD469),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: _currentIndex == 1
+                              ? Colors.white.withValues(alpha: .20)
+                              : Colors.white,
+                          borderRadius: BorderRadius.circular(15),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: .5),
+                          ),
+                        ),
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Icon(
+                              _dests[_currentIndex].selectedIcon,
+                              size: 27,
+                              color: _currentIndex == 1
+                                  ? Colors.white
+                                  : AppColors.darkPurple,
+                            ),
+                            Positioned(
+                              right: 3,
+                              top: 3,
+                              child: Icon(
+                                Icons.auto_awesome,
+                                size: 10,
+                                color: _currentIndex == 1
+                                    ? const Color(0xFFFACC15)
+                                    : AppColors.pink,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        _dests[_currentIndex].title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 25,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -.6,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
         ),
         actions: [
           ListenableBuilder(
@@ -170,7 +359,7 @@ class _MainScreenState extends State<MainScreen>
                   onDestinationSelected: _select,
                   labelType: NavigationRailLabelType.all,
                   backgroundColor: Colors.white,
-                  indicatorColor: AppColors.purpleSoft,
+                  indicatorColor: AppColors.darkPurple,
                   destinations: [
                     for (var i = 0; i < _dests.length; i++)
                       NavigationRailDestination(
@@ -191,6 +380,7 @@ class _MainScreenState extends State<MainScreen>
               selectedIndex: _currentIndex,
               onSelected: _select,
               unread: _unread,
+              chatUnread: _chatUnread,
             ),
     );
   }

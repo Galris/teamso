@@ -10,8 +10,8 @@ abstract final class AppSpacing {
   static const md = 12.0;
   static const lg = 16.0;
   static const xl = 24.0;
-  static const radius = 14.0;
-  static const radiusLg = 20.0;
+  static const radius = 24.0;
+  static const radiusLg = 28.0;
 }
 
 abstract final class AppTheme {
@@ -33,7 +33,7 @@ abstract final class AppTheme {
 
     OutlineInputBorder border(Color color, [double width = 1]) =>
         OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(18),
           borderSide: BorderSide(color: color, width: width),
         );
 
@@ -86,11 +86,12 @@ abstract final class AppTheme {
         },
       ),
       appBarTheme: const AppBarTheme(
-        backgroundColor: Colors.white,
-        foregroundColor: AppColors.textPrimary,
+        backgroundColor: Color(0xFFEEEBF8),
+        foregroundColor: AppColors.darkPurple,
         elevation: 0,
-        scrolledUnderElevation: 0.5,
+        scrolledUnderElevation: 0,
         centerTitle: false,
+        toolbarHeight: 64,
         surfaceTintColor: Colors.transparent,
         titleTextStyle: TextStyle(
           fontSize: 20,
@@ -115,7 +116,7 @@ abstract final class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.inputBackground,
+        fillColor: Colors.white,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 14,
@@ -137,7 +138,7 @@ abstract final class AppTheme {
           minimumSize: const Size(64, 48),
           textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(18),
           ),
         ),
       ),
@@ -148,7 +149,7 @@ abstract final class AppTheme {
           side: const BorderSide(color: AppColors.border),
           textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(18),
           ),
         ),
       ),
@@ -165,7 +166,7 @@ abstract final class AppTheme {
           elevation: 0,
           minimumSize: const Size(double.infinity, 48),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(18),
           ),
         ),
       ),
@@ -180,20 +181,21 @@ abstract final class AppTheme {
         selectedColor: AppColors.purpleSoft,
         side: const BorderSide(color: AppColors.border),
         showCheckmark: false,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
         labelStyle: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
         secondaryLabelStyle: const TextStyle(
           fontSize: 13,
           fontWeight: FontWeight.w600,
           color: AppColors.darkPurple,
         ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        height: 68,
-        indicatorColor: AppColors.purpleSoft,
+        height: 74,
+        indicatorColor: AppColors.darkPurple,
         labelTextStyle: WidgetStateProperty.resolveWith(
           (states) => TextStyle(
             fontSize: 11,
@@ -217,7 +219,7 @@ abstract final class AppTheme {
         behavior: SnackBarBehavior.floating,
         backgroundColor: AppColors.textPrimary,
         contentTextStyle: const TextStyle(color: Colors.white, fontSize: 14),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: Colors.white,
@@ -231,7 +233,7 @@ abstract final class AppTheme {
         surfaceTintColor: Colors.transparent,
         showDragHandle: true,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
         ),
       ),
       switchTheme: SwitchThemeData(
@@ -258,6 +260,25 @@ abstract final class AppTheme {
       progressIndicatorTheme: const ProgressIndicatorThemeData(
         color: AppColors.darkPurple,
         linearTrackColor: AppColors.border,
+      ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        elevation: 5,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      ),
+      datePickerTheme: DatePickerThemeData(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        headerBackgroundColor: AppColors.purpleSoft,
+        headerForegroundColor: AppColors.darkPurple,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      ),
+      timePickerTheme: TimePickerThemeData(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        hourMinuteColor: AppColors.purpleSoft,
+        dialBackgroundColor: AppColors.purpleSoft,
       ),
       listTileTheme: const ListTileThemeData(
         iconColor: AppColors.darkPurple,

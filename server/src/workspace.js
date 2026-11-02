@@ -53,7 +53,7 @@ export function registerWorkspace(app, { db, protectedRoute, notifications }) {
         return !notifications ? [] : notifications.stage(tx, recipients, {
           type: {documents:'document', meetings:'meeting', votes:'vote'}[collection],
           title: {documents:'Tài liệu mới', meetings:'Lịch họp mới', votes:'Bình chọn mới'}[collection],
-          body: data.question ?? data.label, projectId: req.params.projectId, targetId: ref.id,
+          projectName: projectData.name || 'Dự án', body: data.question ?? data.label, projectId: req.params.projectId, targetId: ref.id,
         });
       });
       if (notifications) await notifications.deliver(jobs);
@@ -74,6 +74,21 @@ export function registerWorkspace(app, { db, protectedRoute, notifications }) {
       res.json({ message: 'Đã xóa.' });
     });
   }
+  // Append only: existing ballot indices remain stable, including concurrent requests.
+  app.post(`${base}/votes/:id/options`, protectedRoute, async (req, res) => {
+    const data = parse(z.object({ option: z.string().trim().min(1).max(120) }).strict(), req.body);
+    const ref = db.collection('projects').doc(id(req.params.projectId)).collection('votes').doc(id(req.params.id));
+    await db.runTransaction(async tx => {
+      await access(tx, req.params.projectId, req.uid);
+      const vote = await tx.get(ref);
+      if (!vote.exists || vote.data().deleting) throw fail(404, 'Bình chọn đã bị xóa.');
+      const options = vote.data().options ?? [];
+      if (options.length >= 20) throw fail(400, 'Mỗi bình chọn tối đa 20 đáp án.');
+      if (options.some(x => x.toLocaleLowerCase('vi') === data.option.toLocaleLowerCase('vi'))) throw fail(400, 'Đáp án này đã tồn tại.');
+      tx.update(ref, { options: [...options, data.option], updatedAt: FieldValue.serverTimestamp() });
+    });
+    res.status(201).json({ message: 'Đã thêm đáp án.' });
+  });
   app.put(`${base}/votes/:id/ballot`, protectedRoute, async (req, res) => {
     const data = parse(ballotSchema, req.body);
     const ref = db.collection('projects').doc(id(req.params.projectId)).collection('votes').doc(id(req.params.id));

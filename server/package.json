@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "engines": {
-    "node": ">=20.19"
+    "node": ">=22"
   },
   "scripts": {
     "dev": "node --watch src/index.js",
@@ -12,12 +12,13 @@
     "test": "node --test --test-concurrency=1 test/firebase.test.js",
     "test:workspace": "node --test --test-concurrency=1 test/workspace.test.js",
     "test:notifications": "node --test --test-concurrency=1 test/notifications.test.js",
-    "test:workspace:emulators": "firebase emulators:exec --project demo-teamup-workspace --only auth,firestore --config firebase.workspace-test.json \"node --test --test-concurrency=1 test/workspace.test.js\"",
+    "test:workspace:emulators": "firebase emulators:exec --project demo-teamup-workspace --only auth,firestore --config ../firebase.workspace-test.json \"node --test --test-concurrency=1 test/notifications.test.js test/workspace.test.js\"",
     "local": "node scripts/dev-local.js",
     "emulators": "node scripts/emulators.js",
     "api": "node scripts/start-local.js",
     "firebase:save": "node scripts/save-emulators.js",
-    "firebase:check-cloud": "node scripts/check-cloud.js"
+    "firebase:check-cloud": "node scripts/check-cloud.js",
+    "test:unit": "node --test test/task_notifications.test.js test/workspace_options.test.js test/direct_chats.test.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

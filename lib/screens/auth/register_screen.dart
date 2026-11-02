@@ -1,3 +1,5 @@
+import '../../widgets/app_widgets.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../controllers/session_controller.dart';
@@ -62,16 +64,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Tạo tài khoản TeamUp',
-              style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800),
+            const PageIntro(
+              title: 'Bắt đầu cùng TeamUp',
+              description:
+                  'Một tài khoản cho mọi dự án và cuộc trò chuyện của nhóm.',
+              icon: Icons.groups_outlined,
             ),
-            const SizedBox(height: 8),
-            const Text(
-              'Bắt đầu cùng nhóm của bạn.',
-              style: TextStyle(color: AppColors.textSecondary),
-            ),
-            const SizedBox(height: 24),
             _field(
               name,
               'Họ tên',

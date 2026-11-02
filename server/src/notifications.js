@@ -22,7 +22,7 @@ export function notificationService(db, messaging = getMessaging()) {
           const rows = devices.docs.slice(start, start + 500);
           const result = await messaging.sendEachForMulticast({
             tokens: rows.map(d => d.data().token),
-            notification: {title: data.title, body: data.body},
+            notification: {title: data.title, body: data.projectName ? `${data.projectName} · ${data.body}` : data.body},
             data: {notificationId: ref.id, projectId: data.projectId ?? '', type: data.type, targetId: data.targetId ?? ''},
             android: {priority: 'high', notification: {tag: ref.id}},
           });

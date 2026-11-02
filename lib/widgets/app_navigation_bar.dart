@@ -23,13 +23,13 @@ const appDestinations = [
     Icons.checklist_rtl_rounded,
   ),
   AppDestination(
-    'Không gian nhóm',
+    'Workspace',
     'Workspace',
     Icons.folder_outlined,
     Icons.folder_rounded,
   ),
   AppDestination(
-    'Trò chuyện',
+    'Chat',
     'Chat',
     Icons.chat_bubble_outline_rounded,
     Icons.chat_bubble_rounded,
@@ -51,12 +51,14 @@ const _tabAccents = [
   AppColors.darkPurple,
 ];
 
-Color appDestinationAccent(int index) => _tabAccents[index % _tabAccents.length];
+Color appDestinationAccent(int index) =>
+    _tabAccents[index % _tabAccents.length];
 
 Widget appDestinationIcon(
   int index, {
   required bool selected,
   ValueListenable<int>? unread,
+  ValueListenable<int>? chatUnread,
 }) {
   final destination = appDestinations[index];
   final icon = AnimatedScale(
@@ -65,12 +67,17 @@ Widget appDestinationIcon(
     curve: Curves.easeOutBack,
     child: Icon(
       selected ? destination.selectedIcon : destination.icon,
-      color: selected ? appDestinationAccent(index) : AppColors.textSecondary,
+      color: selected ? Colors.white : AppColors.textSecondary,
     ),
   );
-  if (index != 4 || unread == null) return icon;
+  final counter = index == 3
+      ? chatUnread
+      : index == 4
+      ? unread
+      : null;
+  if (counter == null) return icon;
   return ValueListenableBuilder<int>(
-    valueListenable: unread,
+    valueListenable: counter,
     builder: (_, count, _) => Badge(
       isLabelVisible: count > 0,
       label: Text(count > 9 ? '9+' : '$count'),
@@ -87,10 +94,12 @@ class AppNavigationBar extends StatelessWidget {
     required this.selectedIndex,
     required this.onSelected,
     this.unread,
+    this.chatUnread,
   });
   final int selectedIndex;
   final ValueChanged<int> onSelected;
   final ValueListenable<int>? unread;
+  final ValueListenable<int>? chatUnread;
   @override
   Widget build(BuildContext context) => DecoratedBox(
     decoration: const BoxDecoration(
@@ -103,8 +112,18 @@ class AppNavigationBar extends StatelessWidget {
       destinations: [
         for (var i = 0; i < appDestinations.length; i++)
           NavigationDestination(
-            icon: appDestinationIcon(i, selected: false, unread: unread),
-            selectedIcon: appDestinationIcon(i, selected: true, unread: unread),
+            icon: appDestinationIcon(
+              i,
+              selected: false,
+              unread: unread,
+              chatUnread: chatUnread,
+            ),
+            selectedIcon: appDestinationIcon(
+              i,
+              selected: true,
+              unread: unread,
+              chatUnread: chatUnread,
+            ),
             label: appDestinations[i].label,
           ),
       ],

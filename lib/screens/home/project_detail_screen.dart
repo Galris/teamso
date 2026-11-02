@@ -26,11 +26,13 @@ const Color _textSecondary = Color(0xFF858397);
 class ProjectDetailScreen extends StatefulWidget {
   final String projectId;
   final String? currentUserId;
+  final bool openCreateTask;
 
   const ProjectDetailScreen({
     super.key,
     required this.projectId,
     this.currentUserId,
+    this.openCreateTask = false,
   });
 
   @override
@@ -48,7 +50,10 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
   StreamSubscription? _memberSubscription;
   StreamSubscription? _resourceSubscription;
 
+  String _taskFilter = 'Tất cả';
+  String _taskQuery = '';
   bool _loading = true;
+  bool _openedInitialTask = false;
   bool _busy = false;
   String? _error;
   Map<String, dynamic>? _project;
@@ -104,6 +109,12 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
               _loading = false;
               _error = null;
             });
+            if (widget.openCreateTask && !_openedInitialTask && _isLeader) {
+              _openedInitialTask = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) _showCreateTaskDialog();
+              });
+            }
           },
           onError: (Object error) {
             if (mounted) {
@@ -435,10 +446,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
 
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (_) => _CreateTaskDialog(
-        memberItems: memberItems,
-        formatDate: _formatDate,
-      ),
+      builder: (_) =>
+          _CreateTaskDialog(memberItems: memberItems, formatDate: _formatDate),
     );
     if (result == null || !mounted) {
       return;
@@ -616,8 +625,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
               color.withValues(alpha: 0.05),
             ],
           ),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withValues(alpha: 0.2)),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: color.withValues(alpha: 0.15)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -685,6 +694,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
+        scrollable: true,
         title: const Text('Rời dự án'),
         content: const Text('Bạn chắc chắn muốn rời khỏi dự án này?'),
         actions: [
@@ -711,6 +721,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
+        scrollable: true,
         title: const Text('Xóa dự án'),
         content: const Text(
           'Toàn bộ công việc, thành viên và dữ liệu của dự án sẽ bị xóa vĩnh viễn. '
@@ -744,221 +755,358 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
     _ => null,
   };
 
+  Widget _pill(String text, Color color) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: .10),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Text(
+      text,
+      style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600),
+    ),
+  );
+
+  Widget _section(String title, String subtitle, {Widget? action}) => Padding(
+    padding: const EdgeInsets.only(top: 26, bottom: 14),
+    child: Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 19,
+                  fontWeight: FontWeight.w700,
+                  color: _textPrimary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: const TextStyle(fontSize: 12, color: _textSecondary),
+              ),
+            ],
+          ),
+        ),
+        ?action,
+      ],
+    ),
+  );
+
   Widget _buildOverview(Map<String, dynamic> project) {
-    final color = _projectColor(project);
-    final projectName = _stringValue(project, const [
+    final name = _stringValue(project, const [
       'name',
       'title',
       'projectName',
     ], fallback: 'Dự án');
-    final leaderId = _leaderId();
-
+    final description = _stringValue(project, const ['description']);
+    final code = _stringValue(project, const ['joinCode']);
+    final completed = _countStatus('Hoàn thành');
+    final progress = _tasks.isEmpty ? 0.0 : completed / _tasks.length;
     return RefreshIndicator(
       onRefresh: _loadPage,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
         children: [
           Container(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(22),
             decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(20),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFE5E5FB), Color(0xFFF4E8F5)],
+              ),
+              borderRadius: BorderRadius.circular(26),
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 58,
-                  height: 58,
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Icon(
-                    Icons.folder_open_rounded,
-                    color: Colors.white,
-                    size: 30,
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: .8),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Icon(
+                        Icons.folder_open_rounded,
+                        color: teamUpDarkPurple,
+                        size: 26,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            name,
+                            style: const TextStyle(
+                              fontSize: 23,
+                              fontWeight: FontWeight.w700,
+                              height: 1.2,
+                              color: teamUpDarkPurple,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          _pill(
+                            _isLeader ? 'Trưởng nhóm' : 'Thành viên',
+                            teamUpDarkPurple,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        projectName,
+                if (description.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  Text(
+                    description,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      height: 1.6,
+                      color: Color(0xFF69627D),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 22),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '$completed/${_tasks.length} công việc hoàn thành',
                         style: const TextStyle(
-                          fontSize: 19,
-                          fontWeight: FontWeight.w800,
-                          color: _textPrimary,
+                          fontSize: 12,
+                          color: teamUpDarkPurple,
                         ),
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Vai trò của bạn: $_role',
-                        style: TextStyle(
-                          color: color,
-                          fontWeight: FontWeight.w700,
-                        ),
+                    ),
+                    Text(
+                      '${(progress * 100).round()}%',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: teamUpDarkPurple,
                       ),
-                      if (_stringValue(project, const [
-                        'description',
-                      ]).isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          _stringValue(project, const ['description']),
-                          style: const TextStyle(color: _textSecondary),
-                        ),
-                      ],
-                    ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 7,
+                    color: teamUpPurple,
+                    backgroundColor: Colors.white.withValues(alpha: .75),
                   ),
                 ),
               ],
             ),
           ),
-          if (_stringValue(project, const ['joinCode']).isNotEmpty) ...[
-            const SizedBox(height: 14),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.qr_code_2_rounded),
-              title: const Text('Mã tham gia dự án'),
-              subtitle: SelectableText(
-                _stringValue(project, const ['joinCode']),
+          if (code.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFFE8E6ED)),
               ),
-              trailing: IconButton(
-                tooltip: 'Sao chép mã',
-                icon: const Icon(Icons.copy_rounded),
-                onPressed: () {
-                  Clipboard.setData(
-                    ClipboardData(
-                      text: _stringValue(project, const ['joinCode']),
-                    ),
-                  );
-                  _message('Đã sao chép mã tham gia.');
-                },
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 5,
+                ),
+                leading: const Icon(
+                  Icons.qr_code_2_rounded,
+                  color: teamUpPurple,
+                  size: 30,
+                ),
+                title: const Text(
+                  'Mã tham gia',
+                  style: TextStyle(fontSize: 12, color: _textSecondary),
+                ),
+                subtitle: SelectableText(
+                  code,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1,
+                    color: teamUpDarkPurple,
+                  ),
+                ),
+                trailing: IconButton(
+                  tooltip: 'Sao chép mã tham gia',
+                  icon: const Icon(
+                    Icons.copy_rounded,
+                    size: 20,
+                    color: teamUpDarkPurple,
+                  ),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: code));
+                    _message('Đã sao chép mã tham gia.');
+                  },
+                ),
               ),
             ),
           ],
-          const SizedBox(height: 24),
-          const Text(
+          _section(
             'Tiến độ công việc',
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-              color: _textPrimary,
-            ),
+            'Theo dõi tình hình thực hiện của cả nhóm',
           ),
-          const SizedBox(height: 12),
           Row(
             children: [
-              _statCard('Cần làm', _countStatus('Cần làm'), _textSecondary),
-              const SizedBox(width: 10),
+              _statCard('Cần làm', _countStatus('Cần làm'), teamUpPurple),
+              const SizedBox(width: 12),
               _statCard(
                 'Đang làm',
                 _countStatus('Đang làm'),
-                const Color(0xFF4285F4),
+                const Color(0xFF5A91C8),
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Row(
             children: [
               _statCard(
                 'Chờ duyệt',
                 _countStatus('Chờ duyệt'),
-                const Color(0xFFDB9B18),
+                const Color(0xFFB68630),
               ),
-              const SizedBox(width: 10),
-              _statCard('Hoàn thành', _countStatus('Hoàn thành'), teamUpGreen),
+              const SizedBox(width: 12),
+              _statCard('Hoàn thành', completed, teamUpGreen),
             ],
           ),
-          const SizedBox(height: 24),
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Thành viên dự án',
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                    color: _textPrimary,
-                  ),
-                ),
+          if (_countStatus('Cần sửa') > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: _pill(
+                '${_countStatus('Cần sửa')} công việc cần chỉnh sửa',
+                const Color(0xFFAD4D82),
               ),
-              Text(
-                '${_members.length} người',
-                style: const TextStyle(color: _textSecondary),
-              ),
-              if (_isLeader)
-                IconButton(
-                  tooltip: 'Thêm thành viên bằng username',
-                  onPressed: _busy ? null : _addMemberByUsername,
-                  icon: const Icon(Icons.person_add_alt_1_rounded),
-                ),
-            ],
+            ),
+          _section(
+            'Thành viên',
+            '${_members.length} người trong dự án',
+            action: _isLeader
+                ? IconButton.filledTonal(
+                    tooltip: 'Thêm thành viên',
+                    onPressed: _busy ? null : _addMemberByUsername,
+                    icon: const Icon(Icons.person_add_alt_1_rounded, size: 21),
+                  )
+                : null,
           ),
-          const SizedBox(height: 8),
-          if (_members.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 16),
-              child: Text(
-                'Chưa có thông tin thành viên.',
-                style: TextStyle(color: _textSecondary),
-              ),
-            )
-          else
-            ..._members.map((member) {
-              final id = _stringValue(member, const [
-                'uid',
-                'id',
-                '_id',
-                'userId',
-                'user_id',
-              ]);
-              final name = _memberName(member);
-              final isLeader = id.isNotEmpty && id == leaderId;
-              return ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: CircleAvatar(
-                  backgroundColor: color.withValues(alpha: 0.13),
-                  child: Text(
-                    name.trim().isEmpty
-                        ? '?'
-                        : name.trim().substring(0, 1).toUpperCase(),
-                    style: TextStyle(color: color, fontWeight: FontWeight.w800),
-                  ),
-                ),
-                title: Text(
-                  name,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                subtitle: id.isEmpty
-                    ? null
-                    : Text(id, style: const TextStyle(fontSize: 11)),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      isLeader ? 'Leader' : 'Member',
-                      style: TextStyle(
-                        color: isLeader ? teamUpDarkPurple : _textSecondary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: const Color(0xFFE8E6ED)),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              children: [
+                if (_members.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text(
+                      'Chưa có thông tin thành viên.',
+                      style: TextStyle(color: _textSecondary),
                     ),
-                    if (_isLeader && !isLeader && id.isNotEmpty)
-                      IconButton(
-                        tooltip: 'Xóa thành viên',
-                        icon: const Icon(
-                          Icons.person_remove_outlined,
-                          size: 18,
+                  ),
+                ..._members.indexed.map((entry) {
+                  final member = entry.$2;
+                  final id = _stringValue(member, const [
+                    'uid',
+                    'id',
+                    '_id',
+                    'userId',
+                    'user_id',
+                  ]);
+                  final name = _memberName(member);
+                  final leader =
+                      id == _leaderId() ||
+                      _stringValue(member, const ['role']).toLowerCase() ==
+                          'leader';
+                  final username = _stringValue(member, const ['username']);
+                  return Column(
+                    children: [
+                      if (entry.$1 > 0)
+                        const Divider(
+                          height: 1,
+                          indent: 72,
+                          endIndent: 16,
+                          color: Color(0xFFF0EEF5),
                         ),
-                        onPressed: _busy ? null : () => _removeMember(id),
+                      ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 5,
+                        ),
+                        leading: CircleAvatar(
+                          radius: 21,
+                          backgroundColor: leader
+                              ? const Color(0xFFF4E8F5)
+                              : const Color(0xFFEFEDF8),
+                          child: Text(
+                            name.trim().isEmpty
+                                ? '?'
+                                : name.characters.first.toUpperCase(),
+                            style: const TextStyle(
+                              color: teamUpDarkPurple,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        title: Text(
+                          id == _currentUserId ? '$name (Bạn)' : name,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        subtitle: username.isEmpty
+                            ? null
+                            : Text(
+                                '@$username',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: _textSecondary,
+                                ),
+                              ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _pill(
+                              leader ? 'Trưởng nhóm' : 'Thành viên',
+                              leader ? teamUpDarkPurple : teamUpGreen,
+                            ),
+                            if (_isLeader && !leader && id.isNotEmpty)
+                              IconButton(
+                                tooltip: 'Xóa thành viên',
+                                onPressed: _busy
+                                    ? null
+                                    : () => _removeMember(id),
+                                icon: const Icon(
+                                  Icons.person_remove_outlined,
+                                  size: 18,
+                                  color: _textSecondary,
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-                  ],
-                ),
-              );
-            }),
+                    ],
+                  );
+                }),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -996,7 +1144,11 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
         padding: const EdgeInsets.all(24),
         children: [
           const SizedBox(height: 80),
-          const Icon(Icons.lock_outline_rounded, size: 48, color: _textSecondary),
+          const Icon(
+            Icons.lock_outline_rounded,
+            size: 48,
+            color: _textSecondary,
+          ),
           const SizedBox(height: 12),
           const Center(
             child: Text(
@@ -1035,16 +1187,22 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
     } else {
       content = ListView.separated(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16),
-        itemCount: _resources.length,
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
+        itemCount: _resources.length + 1,
         separatorBuilder: (_, _) => const SizedBox(height: 10),
         itemBuilder: (context, index) {
-          final resource = _resources[index];
+          if (index == 0) {
+            return _section(
+              'Tài nguyên',
+              '${_resources.length} tài liệu và liên kết kết quả',
+            );
+          }
+          final resource = _resources[index - 1];
           final url = _stringValue(resource, const ['url']);
           return Container(
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(22),
               border: Border.all(color: const Color(0xFFECEBF2)),
             ),
             child: ListTile(
@@ -1075,32 +1233,117 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
   }
 
   Widget _buildTasks() {
-    if (_tasks.isEmpty) {
-      return RefreshIndicator(
-        onRefresh: _loadPage,
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          children: const [
-            SizedBox(height: 120),
-            Icon(Icons.task_alt_rounded, size: 52, color: Color(0xFFD0CEDC)),
-            SizedBox(height: 12),
-            Center(
-              child: Text(
-                'Chưa có công việc nào',
-                style: TextStyle(color: _textSecondary),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
+    final rows = _tasks
+        .where(
+          (task) =>
+              (_taskFilter == 'Tất cả' || _status(task) == _taskFilter) &&
+              _stringValue(task, const [
+                'title',
+                'name',
+              ]).toLowerCase().contains(_taskQuery.toLowerCase().trim()),
+        )
+        .toList();
     return RefreshIndicator(
       onRefresh: _loadPage,
-      child: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: _tasks.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 10),
-        itemBuilder: (context, index) => _buildTaskCard(_tasks[index]),
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
+        children: [
+          _section(
+            'Công việc',
+            '${_tasks.length} công việc · ${_countStatus('Hoàn thành')} hoàn thành',
+          ),
+          TextField(
+            onChanged: (value) => setState(() => _taskQuery = value),
+            decoration: const InputDecoration(
+              hintText: 'Tìm công việc…',
+              prefixIcon: Icon(Icons.search_rounded),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children:
+                [
+                      'Tất cả',
+                      'Cần làm',
+                      'Đang làm',
+                      'Chờ duyệt',
+                      'Cần sửa',
+                      'Hoàn thành',
+                    ]
+                    .map(
+                      (status) => ChoiceChip(
+                        label: Text(status),
+                        selected: _taskFilter == status,
+                        showCheckmark: false,
+                        selectedColor: teamUpDarkPurple,
+                        backgroundColor: Colors.white,
+                        labelStyle: TextStyle(
+                          color: _taskFilter == status
+                              ? Colors.white
+                              : _textSecondary,
+                          fontWeight: _taskFilter == status
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                        ),
+                        side: BorderSide(
+                          color: _taskFilter == status
+                              ? teamUpDarkPurple
+                              : const Color(0xFFE8E6ED),
+                        ),
+                        onSelected: (_) => setState(() => _taskFilter = status),
+                      ),
+                    )
+                    .toList(),
+          ),
+          const SizedBox(height: 18),
+          if (rows.isEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Column(
+                children: [
+                  const Icon(
+                    Icons.task_alt_rounded,
+                    size: 42,
+                    color: teamUpPurple,
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    _tasks.isEmpty
+                        ? 'Chưa có công việc'
+                        : 'Không có công việc phù hợp',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _tasks.isEmpty
+                        ? (_isLeader
+                              ? 'Tạo công việc đầu tiên để bắt đầu phân công cho nhóm.'
+                              : 'Công việc sẽ xuất hiện khi trưởng nhóm phân công.')
+                        : 'Thử đổi từ khóa hoặc bộ lọc trạng thái.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: _textSecondary, height: 1.5),
+                  ),
+                ],
+              ),
+            )
+          else
+            ...rows.map(
+              (task) => Padding(
+                padding: const EdgeInsets.only(bottom: 14),
+                child: _buildTaskCard(task),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1138,8 +1381,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFECEBF2)),
+        borderRadius: BorderRadius.circular(24),
+        border: Border(left: BorderSide(color: color, width: 4)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1151,8 +1394,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
                 child: Text(
                   title,
                   style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
                     color: _textPrimary,
                   ),
                 ),
@@ -1193,7 +1436,11 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
               const SizedBox(width: 5),
               Expanded(
                 child: Text(
-                  _memberName(assigneeId),
+                  task['assigneeIds'] is List
+                      ? (task['assigneeIds'] as List)
+                            .map(_memberName)
+                            .join(', ')
+                      : _memberName(assigneeId),
                   style: const TextStyle(fontSize: 12, color: _textSecondary),
                 ),
               ),
@@ -1316,7 +1563,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
     return Scaffold(
       backgroundColor: _background,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFFEEEBF8),
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
@@ -1381,22 +1628,31 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
             onPressed: _loading ? null : _loadPage,
             icon: const Icon(Icons.refresh_rounded, color: _textPrimary),
           ),
-          if (_isLeader)
-            IconButton(
-              tooltip: 'Tạo công việc',
-              onPressed: _busy ? null : _showCreateTaskDialog,
-              icon: const Icon(
-                Icons.add_circle_outline_rounded,
-                color: teamUpDarkPurple,
-              ),
-            ),
         ],
         bottom: TabBar(
           controller: _tabController,
-          labelColor: color,
+          labelColor: Colors.white,
           unselectedLabelColor: _textSecondary,
           indicatorColor: color,
           indicatorWeight: 3,
+          dividerColor: Colors.transparent,
+          labelStyle: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+          ),
+          unselectedLabelStyle: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
+          indicatorSize: TabBarIndicatorSize.tab,
+          indicator: BoxDecoration(
+            color: teamUpDarkPurple,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          indicatorPadding: const EdgeInsets.symmetric(
+            horizontal: 6,
+            vertical: 7,
+          ),
           tabs: const [
             Tab(text: 'Tổng quan'),
             Tab(text: 'Công việc'),
@@ -1539,6 +1795,7 @@ class _CreateTaskDialogState extends State<_CreateTaskDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      scrollable: true,
       title: const Text('Tạo công việc'),
       content: SizedBox(
         width: 440,
@@ -1552,7 +1809,6 @@ class _CreateTaskDialogState extends State<_CreateTaskDialog> {
                   controller: _titleController,
                   decoration: const InputDecoration(
                     labelText: 'Tên công việc *',
-                    border: OutlineInputBorder(),
                   ),
                   validator: (value) => value == null || value.trim().isEmpty
                       ? 'Vui lòng nhập tên công việc'
@@ -1563,10 +1819,7 @@ class _CreateTaskDialogState extends State<_CreateTaskDialog> {
                   controller: _descriptionController,
                   minLines: 2,
                   maxLines: 4,
-                  decoration: const InputDecoration(
-                    labelText: 'Mô tả',
-                    border: OutlineInputBorder(),
-                  ),
+                  decoration: const InputDecoration(labelText: 'Mô tả'),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
@@ -1574,7 +1827,6 @@ class _CreateTaskDialogState extends State<_CreateTaskDialog> {
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Người thực hiện',
-                    border: OutlineInputBorder(),
                   ),
                   items: widget.memberItems,
                   onChanged: (value) => setState(() => _assigneeId = value),
@@ -1586,7 +1838,6 @@ class _CreateTaskDialogState extends State<_CreateTaskDialog> {
                   initialValue: _priority,
                   decoration: const InputDecoration(
                     labelText: 'Mức độ ưu tiên',
-                    border: OutlineInputBorder(),
                   ),
                   items: const [
                     DropdownMenuItem(value: 'low', child: Text('Thấp')),
@@ -1603,10 +1854,7 @@ class _CreateTaskDialogState extends State<_CreateTaskDialog> {
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: _outputType,
-                  decoration: const InputDecoration(
-                    labelText: 'Loại đầu ra',
-                    border: OutlineInputBorder(),
-                  ),
+                  decoration: const InputDecoration(labelText: 'Loại đầu ra'),
                   items: const [
                     DropdownMenuItem(
                       value: 'docs',
@@ -1717,6 +1965,7 @@ class _EditProjectDialogState extends State<_EditProjectDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      scrollable: true,
       title: const Text('Cập nhật dự án'),
       content: SizedBox(
         width: 420,
@@ -1727,10 +1976,7 @@ class _EditProjectDialogState extends State<_EditProjectDialog> {
             children: [
               TextFormField(
                 controller: _name,
-                decoration: const InputDecoration(
-                  labelText: 'Tên dự án *',
-                  border: OutlineInputBorder(),
-                ),
+                decoration: const InputDecoration(labelText: 'Tên dự án *'),
                 validator: (v) =>
                     (v ?? '').trim().isEmpty ? 'Tên không được để trống' : null,
               ),
@@ -1739,10 +1985,7 @@ class _EditProjectDialogState extends State<_EditProjectDialog> {
                 controller: _description,
                 minLines: 2,
                 maxLines: 4,
-                decoration: const InputDecoration(
-                  labelText: 'Mô tả',
-                  border: OutlineInputBorder(),
-                ),
+                decoration: const InputDecoration(labelText: 'Mô tả'),
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -1750,7 +1993,6 @@ class _EditProjectDialogState extends State<_EditProjectDialog> {
                 decoration: const InputDecoration(
                   labelText: 'Thẻ / danh mục',
                   hintText: 'mobile, marketing, research...',
-                  border: OutlineInputBorder(),
                 ),
               ),
             ],

@@ -1,12 +1,12 @@
-# Auth & Profile — mỗi thành viên chạy API riêng, dùng Firebase chung
+# TeamUp — mỗi thành viên chạy API riêng, dùng Firebase chung
 
 Project Firebase của nhóm: **teamup-7ae78**. Luồng: Flutter → Express trên máy mỗi thành viên → Firebase Authentication + Firestore online chung.
 
-Phạm vi phần Nghi: đăng ký, đăng nhập, phiên/token, xem/sửa Profile, đổi mật khẩu và đăng xuất. Tài liệu này không triển khai API Home, Task Board, Workspace, Chat hoặc Notify.
+Cấu hình này dùng chung cho Auth/Profile, dự án, Task Board, Workspace, Chat và Thông báo trong backend Express hiện tại. Xem README.md để chạy bản app mới.
 
 ## 1. Chuẩn bị quyền và công cụ
 
-- Node.js >=20.19, npm; Flutter để chạy ứng dụng.
+- Node.js >=22, npm; Flutter để chạy ứng dụng.
 - Được người quản lý thêm tài khoản Google vào project Firebase. Người chạy backend cần quyền thao tác Auth và Firestore (Firebase Admin cho thành viên phát triển được tin cậy); Firebase Viewer chỉ để xem, không đủ chạy API ghi dữ liệu.
 - Authentication đã bật Email/Password; Firestore `(default)` đã tạo. Giữ rules chặn client trực tiếp trong `server/firestore.rules`: backend Admin SDK kiểm tra Bearer token và các trường được phép sửa.
 - Mỗi người dùng thông tin xác thực riêng; không gửi file credential của Nghi cho cả nhóm.
@@ -85,7 +85,7 @@ API hiện chỉ bind loopback, phù hợp emulator/web trên cùng máy. Điệ
 - Postman: dùng collection/environment trong `server/postman/`; baseUrl vẫn là `http://127.0.0.1:3000/api`. Collection tạo tài khoản test và thay mật khẩu, nên chỉ dùng tài khoản test riêng, không dùng tài khoản thật.
 - `npm test` luôn dùng project Emulator `demo-teamup-local`, không chạy test tự động lên cloud; cần khởi động Emulator riêng để chạy bộ test này.
 
-Dữ liệu cloud dùng chung: không sửa/xóa hồ sơ của thành viên khác trong Console. API Home/Task/Chat của các thành viên khác không tự có chỉ vì Auth/Profile đã nối cloud.
+Dữ liệu cloud dùng chung: không sửa/xóa hồ sơ của thành viên khác trong Console. Các thành viên cần chạy cùng phiên bản app và backend mới để dùng đầy đủ API dự án/task/Workspace/chat/thông báo.
 
 ## Git và bảo mật
 

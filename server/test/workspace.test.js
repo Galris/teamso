@@ -98,3 +98,21 @@ test('Firestore Rules: member realtime reads, outsider/anonymous denial, all dir
   assert.equal((await client('member','GET',orphan)).status,403);
   assert.equal((await client('member','PATCH',orphan,{fields:{options:{arrayValue:{values:[{integerValue:'0'}]}}}})).status,403);
 });
+
+test('append options preserves ballots and handles concurrent additions', async () => {
+  const vote=(await api('member','post','/votes').send({question:'Append',options:['A','B']}).expect(201)).body.id;
+  await api('member','put',`/votes/${vote}/ballot`).send({options:[1]}).expect(200);
+  await api('outsider','post',`/votes/${vote}/options`).send({option:'C'}).expect(403);
+  for (const option of ['', ' a ', 'x'.repeat(121)]) await api('member','post',`/votes/${vote}/options`).send({option}).expect(400);
+  const replies=await Promise.all(['C','D'].map(option=>api('other','post',`/votes/${vote}/options`).send({option})));
+  assert.deepEqual(replies.map(r=>r.status),[201,201]);
+  const ref=project.collection('votes').doc(vote);
+  const options=(await ref.get()).data().options;
+  assert.deepEqual(options.slice(0,2),['A','B']);
+  assert.ok(options.includes('C') && options.includes('D'));
+  assert.deepEqual((await ref.collection('ballots').doc(users.member.uid).get()).data().options,[1]);
+  await ref.update({options:Array.from({length:20},(_,i)=>String(i))});
+  await api('member','post',`/votes/${vote}/options`).send({option:'extra'}).expect(400);
+  await api('leader','delete',`/votes/${vote}`).expect(200);
+  await api('member','post',`/votes/${vote}/options`).send({option:'E'}).expect(404);
+});

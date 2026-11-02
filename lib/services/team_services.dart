@@ -797,7 +797,8 @@ class TaskService extends _FirestoreService {
     final finalStatus = nextStatus ?? oldStatus;
     final link = '${data['outputLink'] ?? old['outputLink'] ?? ''}'.trim();
     if (finalStatus == TaskStatus.completed &&
-        (nextStatus == TaskStatus.completed || data.containsKey('outputLink')) &&
+        (nextStatus == TaskStatus.completed ||
+            data.containsKey('outputLink')) &&
         link.isNotEmpty) {
       try {
         await _resources.upsertFromTask(
@@ -883,7 +884,65 @@ class ResourceService extends _FirestoreService {
 }
 
 class ChatService extends _FirestoreService {
-  ChatService({super.firestore, super.auth});
+  ChatService({super.firestore, super.auth, super.api});
+
+  Stream<Map<String, int>> watchUnread() {
+    final uid = _requireUid();
+    return _users.doc(uid).collection('notifications').snapshots().map((
+      snapshot,
+    ) {
+      final counts = <String, int>{};
+      for (final doc in snapshot.docs) {
+        final n = doc.data();
+        final projectId = n['conversationId'] is String
+            ? 'direct:${n['conversationId']}'
+            : n['projectId'];
+        if (n['type'] == 'chat' &&
+            n['chatRead'] != true &&
+            projectId is String) {
+          counts.update(projectId, (value) => value + 1, ifAbsent: () => 1);
+        }
+      }
+      return counts;
+    });
+  }
+
+  Future<void> markRead(String projectId, String messageId) async {
+    await _guard(
+      () => _api.post(
+        '/projects/$projectId/messages/read',
+        body: {'messageId': messageId},
+      ),
+    );
+  }
+
+  Future<Map<String, dynamic>> startDirect(String username) =>
+      _guard(() => _api.post('/direct-chats', body: {'username': username}));
+  Future<List<Map<String, dynamic>>> directRooms() async {
+    final data = await _guard(() => _api.get('/direct-chats'));
+    return (data['rooms'] as List? ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> directMessages(String id, {String? before}) =>
+      _guard(
+        () => _api.get(
+          '/direct-chats/$id/messages',
+          query: before == null ? null : {'before': before},
+        ),
+      );
+  Future<void> sendDirect(String id, String content) async {
+    await _guard(
+      () => _api.post('/direct-chats/$id/messages', body: {'content': content}),
+    );
+  }
+
+  Future<void> readDirect(String id, String messageId) async {
+    await _guard(
+      () => _api.post('/direct-chats/$id/read', body: {'messageId': messageId}),
+    );
+  }
 
   CollectionReference<Map<String, dynamic>> _messagesOf(String projectId) =>
       _projects.doc(projectId).collection('messages');
@@ -925,20 +984,8 @@ class ChatService extends _FirestoreService {
     if (await _guard(() => _roleOf(projectId, uid)) == null) {
       throw const ServiceException('Bạn không phải thành viên dự án này.');
     }
-    final profile = await _guard(() => _users.doc(uid).get());
-    final name =
-        (profile.data()?['displayName'] ??
-                profile.data()?['username'] ??
-                'Thành viên')
-            .toString();
     await _guard(
-      () => _messagesOf(projectId).add({
-        'senderId': uid,
-        'senderName': name,
-        'content': text,
-        'kind': 'user',
-        'createdAt': FieldValue.serverTimestamp(),
-      }),
+      () => _api.post('/projects/$projectId/messages', body: {'content': text}),
     );
   }
 }
@@ -1209,6 +1256,19 @@ class WorkspaceService extends _FirestoreService {
           'question': question.trim(),
           'options': options.map((v) => v.trim()).toList(),
         },
+      ),
+    );
+  }
+
+  Future<void> addVoteOption(
+    String projectId,
+    String voteId,
+    String option,
+  ) async {
+    await _guard(
+      () => _api.post(
+        '${_path(projectId, 'votes')}/$voteId/options',
+        body: {'option': option.trim()},
       ),
     );
   }

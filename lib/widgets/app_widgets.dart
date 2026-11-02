@@ -2,6 +2,64 @@ import 'package:flutter/material.dart';
 
 import '../core/theme/app_colors.dart';
 
+/// Intro shared by forms and secondary pages, with the TeamUp pastel palette.
+class PageIntro extends StatelessWidget {
+  const PageIntro({
+    super.key,
+    required this.title,
+    required this.description,
+    required this.icon,
+  });
+  final String title, description;
+  final IconData icon;
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    margin: const EdgeInsets.only(bottom: 24),
+    padding: const EdgeInsets.all(20),
+    decoration: BoxDecoration(
+      gradient: const LinearGradient(
+        colors: [Color(0xFFE8E5FA), Color(0xFFF7EAF4)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+      borderRadius: BorderRadius.circular(24),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: .8),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Icon(icon, color: AppColors.darkPurple, size: 24),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            height: 1.2,
+            color: AppColors.darkPurple,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          description,
+          style: const TextStyle(
+            fontSize: 13,
+            height: 1.5,
+            color: Color(0xFF6D647F),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 /// Hiện SnackBar nhất quán; luôn dọn snackbar cũ trước để không bị chồng.
 void showAppSnack(BuildContext context, String message, {bool error = false}) {
   final messenger = ScaffoldMessenger.of(context);

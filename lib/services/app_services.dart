@@ -45,7 +45,11 @@ class AppServices {
   );
 
   // Giữ các service vốn đã tồn tại; không tạo WorkspaceService mới.
-  late final ChatService chat = ChatService(firestore: firestore, auth: auth);
+  late final ChatService chat = ChatService(
+    firestore: firestore,
+    auth: auth,
+    api: api,
+  );
 
   late final WorkspaceService workspace = WorkspaceService(
     firestore: firestore,

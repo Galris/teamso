@@ -1,3 +1,5 @@
+import { registerDirectChats } from './direct_chats.js';
+import { taskUpdateNotifications } from './task_notifications.js';
 import { sendMessage, listenToMessages } from './firebase/messages.js';
 import express from 'express';
 import { registerWorkspace } from './workspace.js';
@@ -34,6 +36,7 @@ export function createApp({messaging} = {}) {
   registerWorkspace(app, { db, protectedRoute, notifications });
   const messageLimit = rateLimit({ windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false,
     handler: (_req, res) => res.status(429).json({ code: 'RATE_LIMIT', message: 'Bạn gửi quá nhanh. Vui lòng chờ một chút.' }) });
+  registerDirectChats(app, {db, protectedRoute, notifications, messageLimit});
   app.post('/api/messages', protectedRoute, messageLimit, async (req, res) => {
     const result = await sendMessage(req.body?.text, req.uid, req.user.displayName || req.user.username, req.user.avatarUrl);
     res.status(201).json(result);
@@ -95,6 +98,55 @@ export function createApp({messaging} = {}) {
       createdAt: FieldValue.serverTimestamp(),
     });
   }
+  app.post('/api/projects/:projectId/messages', protectedRoute, messageLimit, async (req, res) => {
+    const content = req.body?.content;
+    if (typeof content !== 'string' || !content.trim() || content.trim().length > 2000) {
+      throw fail(400, 'Tin nhắn cần từ 1 đến 2000 ký tự.', 'INVALID_MESSAGE');
+    }
+    const ref = projectRef(req.params.projectId);
+    const message = ref.collection('messages').doc();
+    const senderName = req.user.displayName || req.user.username || 'Thành viên';
+    const text = content.trim();
+    const jobs = await db.runTransaction(async tx => {
+      const [project, members] = await Promise.all([tx.get(ref), tx.get(ref.collection('members'))]);
+      if (!project.exists) throw fail(404, 'Không tìm thấy dự án.', 'PROJECT_NOT_FOUND');
+      const data = project.data();
+      if (data.ownerId !== req.uid && !members.docs.some(d => d.id === req.uid)) {
+        throw fail(403, 'Bạn không phải thành viên dự án.', 'PROJECT_FORBIDDEN');
+      }
+      const recipients = [...new Set([...members.docs.map(d => d.id), data.ownerId])].filter(uid => uid && uid !== req.uid);
+      tx.create(message, {senderId: req.uid, senderName, content: text, kind: 'user', createdAt: FieldValue.serverTimestamp()});
+      const preview = Array.from(text.replace(/\s+/g, ' '));
+      return notifications.stage(tx, recipients, {
+        type: 'chat', title: `${senderName} đã gửi tin nhắn mới`,
+        body: preview.slice(0, 160).join('') + (preview.length > 160 ? '…' : ''),
+        projectId: ref.id, projectName: data.name || 'Dự án', targetId: message.id,
+        actorId: req.uid, actorName: senderName,
+      });
+    });
+    await notifications.deliver(jobs);
+    res.status(201).json({id: message.id});
+  });
+  app.post('/api/projects/:projectId/messages/read', protectedRoute, async (req, res) => {
+    await requireProject(req, req.params.projectId);
+    const messageId = req.body?.messageId;
+    if (typeof messageId !== 'string' || !messageId || messageId.includes('/') || messageId.length > 1500) throw fail(400, 'Mã tin nhắn không hợp lệ.', 'INVALID_MESSAGE');
+    const message = await projectRef(req.params.projectId).collection('messages').doc(messageId).get();
+    if (!message.exists) throw fail(404, 'Không tìm thấy tin nhắn.', 'MESSAGE_NOT_FOUND');
+    const cutoff = message.data().createdAt?.toMillis?.();
+    if (cutoff == null) throw fail(409, 'Tin nhắn chưa được lưu hoàn tất.', 'MESSAGE_PENDING');
+    const inbox = await db.collection('users').doc(req.uid).collection('notifications').get();
+    const unread = inbox.docs.filter(d => {
+      const n = d.data();
+      return n.type === 'chat' && n.projectId === req.params.projectId && n.chatRead !== true && n.createdAt?.toMillis?.() <= cutoff;
+    });
+    for (let i = 0; i < unread.length; i += 400) {
+      const batch = db.batch();
+      unread.slice(i, i + 400).forEach(d => batch.update(d.ref, {chatRead: true}));
+      await batch.commit();
+    }
+    res.json({message: 'Đã đọc tin nhắn.'});
+  });
   app.get('/api/projects', protectedRoute, async (req, res) => {
     const memberships = await db.collection('users').doc(req.uid).collection('projectMemberships').get();
     const rows = await Promise.all(memberships.docs.map(async m => {
@@ -159,7 +211,7 @@ export function createApp({messaging} = {}) {
       tx.update(pRef, { memberIds: FieldValue.arrayUnion(req.uid), updatedAt: FieldValue.serverTimestamp() });
       return notifications.stage(tx, [req.uid], {
         type: 'project_joined', title: 'Bạn đã tham gia dự án',
-        body: `Bạn đã tham gia “${project.data().name || 'Dự án'}”.`, projectId, targetId: projectId,
+        body: `Bạn đã tham gia “${project.data().name || 'Dự án'}”.`, projectId, projectName: project.data().name || 'Dự án', targetId: projectId,
       });
     });
     await notifications.deliver(jobs);
@@ -187,7 +239,7 @@ export function createApp({messaging} = {}) {
       return notifications.stage(tx, [targetUid], {
         type: 'member_added', title: 'Bạn đã được thêm vào dự án',
         body: `Bạn đã được thêm vào “${project.data().name || 'Dự án'}”.`,
-        projectId: req.params.projectId, targetId: req.params.projectId,
+        projectId: req.params.projectId, projectName: project.data().name || 'Dự án', targetId: req.params.projectId,
       });
     });
     await notifications.deliver(jobs);
@@ -231,7 +283,7 @@ export function createApp({messaging} = {}) {
       createdBy: req.uid, startDate: body.startDate ? new Date(body.startDate) : null, dueDate: body.dueDate ? new Date(body.dueDate) : null,
       attachmentUrls: Array.isArray(body.attachmentUrls) ? body.attachmentUrls : [], outputType: body.outputType ?? 'none', outputRequired: body.outputRequired ?? false, checklist: Array.isArray(body.checklist) ? body.checklist : [], createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() };
     const batch = db.batch(); batch.create(ref, data); batch.update(p.ref, { totalTasks: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() }); addActivity(batch, req.params.projectId, req.uid, 'task_created', ref.id, title);
-    const jobs = notifications.stage(batch, assigneeIds, {type: 'assigned', title: 'Bạn được giao việc mới', body: `“${title}” vừa được giao cho bạn.`, projectId: req.params.projectId, targetId: ref.id});
+    const jobs = notifications.stage(batch, assigneeIds, {type: 'assigned', title: 'Bạn được giao việc mới', body: `“${title}” vừa được giao cho bạn.`, projectId: req.params.projectId, projectName: p.data.name || 'Dự án', taskTitle: title, status: 'todo', actorName: req.user.displayName || req.user.username || 'Thành viên', targetId: ref.id});
     await batch.commit(); await notifications.deliver(jobs);
     res.status(201).json({ task: { id: ref.id, projectId: req.params.projectId, ...clean(data) } });
   });
@@ -273,22 +325,11 @@ export function createApp({messaging} = {}) {
     const wasCompleted = old.status === 'completed', willBeCompleted = (changes.status ?? old.status) === 'completed';
     const batch = db.batch(); batch.update(ref, changes);
     if (wasCompleted !== willBeCompleted) batch.update(p.ref, { completedTasks: FieldValue.increment(willBeCompleted ? 1 : -1), updatedAt: FieldValue.serverTimestamp() });
-    const newlyAssigned = (changes.assigneeIds ?? []).filter(uid => !(old.assigneeIds ?? []).includes(uid));
-    const taskTitle = changes.title ?? old.title ?? 'Công việc';
-    const common = {projectId: req.params.projectId, targetId: ref.id};
-    const jobs = notifications.stage(batch, newlyAssigned, {...common, type: 'assigned', title: 'Bạn được giao việc mới', body: `“${taskTitle}” vừa được giao cho bạn.`});
-    const changed = Object.keys(body).some(key => JSON.stringify(body[key]) !== JSON.stringify(old[key]));
-    if (changed) {
-      const currentMembers = new Set((await p.ref.collection('members').get()).docs.map(d => d.id));
-      currentMembers.add(p.data.ownerId);
-      const recipients = [...new Set([...(changes.assigneeIds ?? old.assigneeIds ?? []), p.data.ownerId])].filter(uid => currentMembers.has(uid) && uid !== req.uid && !newlyAssigned.includes(uid));
-      const labels = {in_progress:'đang thực hiện', pending_review:'chờ duyệt', completed:'đã hoàn thành', revision_required:'cần chỉnh sửa', todo:'chưa bắt đầu'};
-      jobs.push(...notifications.stage(batch, recipients, {...common,
-        type: changes.status === 'completed' ? 'completed' : 'updated',
-        title: changes.status === 'pending_review' ? 'Công việc chờ duyệt' : 'Công việc được cập nhật',
-        body: changes.status ? `“${taskTitle}”: ${labels[changes.status]}.` : `Thông tin “${taskTitle}” vừa thay đổi.`,
-      }));
-    }
+    const members = (await p.ref.collection('members').get()).docs.map(d => ({uid: d.id, role: d.data().role}));
+    const events = taskUpdateNotifications({old, changes, project: p.data,
+      projectId: req.params.projectId, taskId: ref.id, actorId: req.uid,
+      actorName: req.user.displayName || req.user.username || 'Thành viên', members});
+    const jobs = events.flatMap(({uid, data}) => notifications.stage(batch, [uid], data));
     await batch.commit(); await notifications.deliver(jobs);
     res.json({ message: 'Đã cập nhật công việc.' });
   });

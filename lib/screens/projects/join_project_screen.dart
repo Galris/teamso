@@ -49,7 +49,10 @@ class _JoinProjectScreenState extends State<JoinProjectScreen> {
       if (q != null && q.isNotEmpty) return q.trim().toUpperCase();
       final segments = uri.pathSegments.where((s) => s.isNotEmpty).toList();
       if (segments.isNotEmpty) return segments.last.toUpperCase();
-      if (uri.scheme == 'teamup' && uri.pathSegments.isEmpty && uri.host.isNotEmpty && uri.host != 'join') {
+      if (uri.scheme == 'teamup' &&
+          uri.pathSegments.isEmpty &&
+          uri.host.isNotEmpty &&
+          uri.host != 'join') {
         return uri.host.toUpperCase();
       }
     }
@@ -105,12 +108,17 @@ class _JoinProjectScreenState extends State<JoinProjectScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF7F5FC),
       appBar: AppBar(title: const Text('Tham gia dự án')),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
           children: [
+            const PageIntro(
+              title: 'Cùng tham gia với nhóm',
+              description: 'Kết nối với dự án bằng mã mời hoặc quét QR.',
+              icon: Icons.group_add_outlined,
+            ),
             const Text(
               'Nhập mã tham gia do Leader chia sẻ, hoặc quét mã QR của dự án.',
               style: TextStyle(color: AppColors.textSecondary, height: 1.5),

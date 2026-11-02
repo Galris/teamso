@@ -111,7 +111,7 @@ class TaskDetailScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: _taskBackground,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFFEEEBF8),
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
@@ -131,7 +131,7 @@ class TaskDetailScreen extends StatelessWidget {
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(24),
                   border: Border.all(color: const Color(0xFFECEBF2)),
                 ),
                 child: Column(
@@ -204,8 +204,8 @@ class TaskDetailScreen extends StatelessWidget {
                               color: task.priority == 'Cao'
                                   ? _taskRed.withValues(alpha: 0.12)
                                   : task.priority == 'Thấp'
-                                      ? _taskGreen.withValues(alpha: 0.12)
-                                      : _taskYellow.withValues(alpha: 0.18),
+                                  ? _taskGreen.withValues(alpha: 0.12)
+                                  : _taskYellow.withValues(alpha: 0.18),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
@@ -214,8 +214,8 @@ class TaskDetailScreen extends StatelessWidget {
                                 color: task.priority == 'Cao'
                                     ? _taskRed
                                     : task.priority == 'Thấp'
-                                        ? _taskGreen
-                                        : const Color(0xFFB27A00),
+                                    ? _taskGreen
+                                    : const Color(0xFFB27A00),
                                 fontSize: 11,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -224,9 +224,18 @@ class TaskDetailScreen extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    _infoRow(Icons.person_outline_rounded, 'Người thực hiện', assignee),
-                    _infoRow(Icons.calendar_today_outlined, 'Hạn hoàn thành', _formatDate(task.dueDate)),
-                    if (task.outputLink != null && task.outputLink!.trim().isNotEmpty)
+                    _infoRow(
+                      Icons.person_outline_rounded,
+                      'Người thực hiện',
+                      assignee,
+                    ),
+                    _infoRow(
+                      Icons.calendar_today_outlined,
+                      'Hạn hoàn thành',
+                      _formatDate(task.dueDate),
+                    ),
+                    if (task.outputLink != null &&
+                        task.outputLink!.trim().isNotEmpty)
                       _infoRow(Icons.link_rounded, 'Kết quả', task.outputLink!),
                   ],
                 ),
@@ -237,7 +246,7 @@ class TaskDetailScreen extends StatelessWidget {
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(24),
                   border: Border.all(color: const Color(0xFFECEBF2)),
                 ),
                 child: Column(
@@ -265,21 +274,24 @@ class TaskDetailScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              if (task.reviewComment != null && task.reviewComment!.trim().isNotEmpty) ...[
+              if (task.reviewComment != null &&
+                  task.reviewComment!.trim().isNotEmpty) ...[
                 const SizedBox(height: 16),
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: _taskPink.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: _taskPink.withValues(alpha: 0.15)),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: _taskPink.withValues(alpha: 0.15),
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Nhận xét từ Leader',
+                        'Nhận xét từ trưởng nhóm',
                         style: TextStyle(
                           color: _taskRed,
                           fontSize: 12,
@@ -299,7 +311,10 @@ class TaskDetailScreen extends StatelessWidget {
                   ),
                 ),
               ],
-              if (onEdit != null || onSubmit != null || onApprove != null || onRequestChanges != null) ...[
+              if (onEdit != null ||
+                  onSubmit != null ||
+                  onApprove != null ||
+                  onRequestChanges != null) ...[
                 const SizedBox(height: 20),
                 Wrap(
                   spacing: 10,

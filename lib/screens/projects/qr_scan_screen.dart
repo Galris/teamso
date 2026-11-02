@@ -63,8 +63,8 @@ class _QrScanScreenState extends State<QrScanScreen> {
               width: 240,
               height: 240,
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.white, width: 3),
-                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFFD9CDFB), width: 3),
+                borderRadius: BorderRadius.circular(28),
               ),
             ),
           ),
@@ -73,9 +73,9 @@ class _QrScanScreenState extends State<QrScanScreen> {
             right: 0,
             bottom: 48,
             child: Text(
-              'Đưa mã QR của dự án vào khung',
+              'Đặt mã QR vào giữa khung\nMã dự án sẽ được nhận diện tự động',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white, fontSize: 14),
+              style: TextStyle(color: Colors.white, fontSize: 14, height: 1.6),
             ),
           ),
         ],
