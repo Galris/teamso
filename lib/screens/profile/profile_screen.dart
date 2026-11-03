@@ -616,7 +616,14 @@ class _Surface extends StatelessWidget {
       side: const BorderSide(color: _border),
     ),
     clipBehavior: Clip.antiAlias,
-    child: child,
+    child: Ink(
+      decoration: BoxDecoration(
+        gradient: pastelGradient(
+          color == Colors.white ? const Color(0xFFF0EBFA) : color,
+        ),
+      ),
+      child: child,
+    ),
   );
 }
 

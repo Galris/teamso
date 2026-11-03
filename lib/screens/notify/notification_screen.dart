@@ -83,7 +83,9 @@ class _TeamNotification {
       'meeting' => _NotificationType.meeting,
       'vote' => _NotificationType.vote,
       'document' => _NotificationType.document,
-      'member_added' || 'project_joined' || 'member_left' => _NotificationType.project,
+      'member_added' ||
+      'project_joined' ||
+      'member_left' => _NotificationType.project,
       'completed' || 'done' || 'approved' => _NotificationType.completed,
       'pending_review' => _NotificationType.pendingReview,
       'review_required' => _NotificationType.reviewRequired,
@@ -457,10 +459,22 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
   Widget _tile(_TeamNotification n) {
     final color = _colorForType(n.type);
-    final gradient = [
-      Color.lerp(Colors.white, color, n.isRead ? .12 : .22)!,
-      Color.lerp(Colors.white, color, n.isRead ? .20 : .32)!,
-    ];
+    final pastel = switch (n.type) {
+      _NotificationType.chat => const Color(0xFFFCEAF3),
+      _NotificationType.vote => const Color(0xFFE7F4EF),
+      _NotificationType.document => const Color(0xFFFFF1E3),
+      _NotificationType.meeting ||
+      _NotificationType.project => const Color(0xFFE6F0FC),
+      _NotificationType.pendingReview ||
+      _NotificationType.deadline => const Color(0xFFFFF4DF),
+      _NotificationType.completed ||
+      _NotificationType.reviewRequired => const Color(0xFFEAF5E9),
+      _NotificationType.revisionRequired => const Color(0xFFFCE8F0),
+      _ => const Color(0xFFEEE7FA),
+    };
+    final gradient = pastelGradient(
+      Color.lerp(Colors.white, pastel, n.isRead ? .6 : 1)!,
+    );
     const foreground = AppColors.darkPurple;
     return Dismissible(
       key: ValueKey('notif-${n.id}'),
@@ -502,7 +516,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
           child: Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              gradient: LinearGradient(colors: gradient),
+              gradient: gradient,
               borderRadius: BorderRadius.circular(22),
               border: Border(left: BorderSide(color: color, width: 5)),
             ),

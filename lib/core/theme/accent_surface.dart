@@ -69,3 +69,15 @@ class AccentCardBorder extends RoundedRectangleBorder {
     canvas.restore();
   }
 }
+
+/// Consistent, low-contrast pastel wash for content cards across TeamUp.
+LinearGradient pastelGradient(Color tone) => LinearGradient(
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+  colors: [
+    Color.lerp(Colors.white, tone, .45)!,
+    tone,
+    Color.lerp(tone, const Color(0xFFFBEFFA), .22)!,
+  ],
+  stops: const [0, .65, 1],
+);

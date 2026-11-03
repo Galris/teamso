@@ -346,12 +346,6 @@ class _VoteCreateDialogState extends State<_VoteCreateDialog> {
                       ),
                     ),
                   ] else ...[
-                    const Text(
-                      'Mọi người sẽ tích vào khung giờ mình rảnh, '
-                      'giống trang When2meet.',
-                      style: TextStyle(fontSize: 13),
-                    ),
-                    const SizedBox(height: 12),
                     Row(
                       children: [
                         Expanded(

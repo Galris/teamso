@@ -572,51 +572,55 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
       ),
       color: color,
       margin: const EdgeInsets.only(bottom: 16),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                SizedBox(
-                  width: 36,
-                  height: 44,
-                  child: Icon(icon, size: 28, color: accent),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 20,
-                      height: 1.15,
-                      letterSpacing: -.4,
-                      fontWeight: FontWeight.w800,
-                      color: accent,
+      clipBehavior: Clip.antiAlias,
+      child: Ink(
+        decoration: BoxDecoration(gradient: pastelGradient(color)),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  SizedBox(
+                    width: 36,
+                    height: 44,
+                    child: Icon(icon, size: 28, color: accent),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 20,
+                        height: 1.15,
+                        letterSpacing: -.4,
+                        fontWeight: FontWeight.w800,
+                        color: accent,
+                      ),
                     ),
                   ),
-                ),
-                if (onAdd != null)
-                  IconButton.filledTonal(
-                    style: IconButton.styleFrom(
-                      fixedSize: const Size(44, 44),
-                      padding: EdgeInsets.zero,
-                      shape: const CircleBorder(),
-                      backgroundColor: Colors.white,
-                      foregroundColor: accent,
-                      disabledBackgroundColor: Colors.white,
-                      disabledForegroundColor: accent.withValues(alpha: .4),
+                  if (onAdd != null)
+                    IconButton.filledTonal(
+                      style: IconButton.styleFrom(
+                        fixedSize: const Size(44, 44),
+                        padding: EdgeInsets.zero,
+                        shape: const CircleBorder(),
+                        backgroundColor: Colors.white,
+                        foregroundColor: accent,
+                        disabledBackgroundColor: Colors.white,
+                        disabledForegroundColor: accent.withValues(alpha: .4),
+                      ),
+                      tooltip: 'Thêm mới',
+                      onPressed: _busy ? null : onAdd,
+                      icon: const Icon(Icons.add_rounded, size: 26),
                     ),
-                    tooltip: 'Thêm mới',
-                    onPressed: _busy ? null : onAdd,
-                    icon: const Icon(Icons.add_rounded, size: 26),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            child,
-          ],
+                ],
+              ),
+              const SizedBox(height: 16),
+              child,
+            ],
+          ),
         ),
       ),
     );

@@ -207,6 +207,16 @@ class _ProjectChatListState extends State<ProjectChatList> {
                         ),
                         child: Container(
                           decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Color.lerp(Colors.white, tone, .12)!,
+                                tone,
+                                Color.lerp(tone, accent, .16)!,
+                              ],
+                              stops: const [0, .5, 1],
+                            ),
                             borderRadius: BorderRadius.circular(24),
                             border: Border(
                               left: BorderSide(color: accent, width: 6),

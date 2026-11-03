@@ -51,6 +51,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
   StreamSubscription? _memberSubscription;
 
   String _taskFilter = 'Tất cả';
+  final _taskFilterScroll = ScrollController();
+  final Map<String, GlobalKey> _taskFilterKeys = {};
   String _taskQuery = '';
   bool _loading = true;
   bool _openedInitialTask = false;
@@ -75,6 +77,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
 
   @override
   void dispose() {
+    _taskFilterScroll.dispose();
     _tabController.dispose();
     _cancelSubscriptions();
     super.dispose();
@@ -333,7 +336,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
       case 'Cần sửa':
         return teamUpPink;
       default:
-        return _textSecondary;
+        return const Color(0xFF9270C5);
     }
   }
 
@@ -1111,11 +1114,62 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
       onRefresh: _loadPage,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
         children: [
-          _section(
-            'Công việc',
-            '${_tasks.length} công việc · ${_countStatus('Hoàn thành')} hoàn thành',
+          Container(
+            padding: const EdgeInsets.all(22),
+            margin: const EdgeInsets.only(bottom: 16),
+            decoration: AccentBoxDecoration(
+              accent: teamUpPurple,
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFE5E5FB), Color(0xFFF4E8F5)],
+              ),
+              borderRadius: BorderRadius.circular(26),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .8),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(
+                    Icons.assignment_outlined,
+                    size: 26,
+                    color: teamUpDarkPurple,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Công việc của nhóm',
+                        style: TextStyle(
+                          fontSize: 23,
+                          height: 1.2,
+                          fontWeight: FontWeight.w700,
+                          color: teamUpDarkPurple,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '${_tasks.length} công việc · ${_countStatus('Hoàn thành')} hoàn thành',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: _textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
           TextField(
             onChanged: (value) => setState(() => _taskQuery = value),
@@ -1125,42 +1179,72 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
             ),
           ),
           const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children:
-                [
-                      'Tất cả',
-                      'Cần làm',
-                      'Đang làm',
-                      'Chờ duyệt',
-                      'Cần sửa',
-                      'Hoàn thành',
-                    ]
-                    .map(
-                      (status) => ChoiceChip(
-                        label: Text(status),
-                        selected: _taskFilter == status,
-                        showCheckmark: false,
-                        selectedColor: teamUpDarkPurple,
-                        backgroundColor: Colors.white,
-                        labelStyle: TextStyle(
-                          color: _taskFilter == status
-                              ? Colors.white
-                              : _textSecondary,
-                          fontWeight: _taskFilter == status
-                              ? FontWeight.w700
-                              : FontWeight.w500,
-                        ),
-                        side: BorderSide(
-                          color: _taskFilter == status
-                              ? teamUpDarkPurple
-                              : const Color(0xFFE8E6ED),
-                        ),
-                        onSelected: (_) => setState(() => _taskFilter = status),
-                      ),
-                    )
-                    .toList(),
+          SizedBox(
+            height: MediaQuery.textScalerOf(context).scale(14) + 40,
+            child: ListView.separated(
+              controller: _taskFilterScroll,
+              scrollDirection: Axis.horizontal,
+              itemCount: 6,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (context, index) {
+                const statuses = [
+                  'Tất cả',
+                  'Cần làm',
+                  'Đang làm',
+                  'Chờ duyệt',
+                  'Cần sửa',
+                  'Hoàn thành',
+                ];
+                final status = statuses[index];
+                final selected = _taskFilter == status;
+                final accent = status == 'Tất cả'
+                    ? teamUpDarkPurple
+                    : _statusColor(status);
+                final count = status == 'Tất cả'
+                    ? _tasks.length
+                    : _countStatus(status);
+                return Center(
+                  key: _taskFilterKeys.putIfAbsent(status, () => GlobalKey()),
+                  child: ChoiceChip(
+                    label: Text('$status ($count)'),
+                    selected: selected,
+                    showCheckmark: false,
+                    backgroundColor: Colors.white,
+                    selectedColor: teamUpDarkPurple,
+                    side: BorderSide(
+                      color: selected
+                          ? teamUpDarkPurple
+                          : accent.withValues(alpha: .25),
+                    ),
+                    labelStyle: TextStyle(
+                      color: selected ? Colors.white : _textPrimary,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                    shape: const StadiumBorder(),
+                    onSelected: (_) {
+                      setState(() => _taskFilter = status);
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (!mounted || !_taskFilterScroll.hasClients) return;
+                        final target = _taskFilterKeys[status]?.currentContext
+                            ?.findRenderObject();
+                        if (target != null) {
+                          _taskFilterScroll.position.ensureVisible(
+                            target,
+                            alignment: .5,
+                            duration: const Duration(milliseconds: 280),
+                            curve: Curves.easeOutCubic,
+                          );
+                        }
+                      });
+                    },
+                  ),
+                );
+              },
+            ),
           ),
           const SizedBox(height: 18),
           if (rows.isEmpty)
@@ -1241,10 +1325,17 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
     final canSubmit = mine && status == 'Đang làm';
     final canReview = _isLeader && status == 'Chờ duyệt';
 
+    final pastel = switch (status) {
+      'Đang làm' => const Color(0xFFDDEEFF),
+      'Chờ duyệt' => const Color(0xFFFFEDCB),
+      'Hoàn thành' => const Color(0xFFDCF3E8),
+      'Cần sửa' => const Color(0xFFFCDDEC),
+      _ => const Color(0xFFE9DAFA),
+    };
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: pastelGradient(pastel),
         borderRadius: BorderRadius.circular(24),
         border: Border(left: BorderSide(color: color, width: 4)),
       ),
@@ -1326,7 +1417,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
               width: double.infinity,
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: teamUpPink.withValues(alpha: 0.08),
+                color: const Color(0xFFFFE7F2),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Text(
@@ -1567,9 +1658,20 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
           ? const Center(child: Text('API không trả về thông tin dự án.'))
           : Stack(
               children: [
-                TabBarView(
-                  controller: _tabController,
-                  children: [_buildOverview(project), _buildTasks()],
+                ColoredBox(
+                  color: const Color(0xFFEEEBF8),
+                  child: ClipRRect(
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(28),
+                    ),
+                    child: ColoredBox(
+                      color: _background,
+                      child: TabBarView(
+                        controller: _tabController,
+                        children: [_buildOverview(project), _buildTasks()],
+                      ),
+                    ),
+                  ),
                 ),
                 if (_busy)
                   const Positioned(

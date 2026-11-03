@@ -1,3 +1,5 @@
+import '../../widgets/team_greeting_card.dart';
+import '../../widgets/greeting_reveal.dart';
 import '../../core/theme/accent_surface.dart';
 import '../../models/task_model.dart';
 import '../tasks/task_detail_screen.dart';
@@ -448,25 +450,6 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     );
   }
 
-  Color _projectColor(Map<String, dynamic> project) {
-    final value = project['color'];
-
-    if (value is Color) return value;
-    if (value is int) return Color(value);
-
-    switch (project['tag']?.toString()) {
-      case 'Mobile':
-      case 'Mobile App':
-        return teamUpGreen;
-      case 'Marketing':
-        return teamUpPink;
-      case 'Research':
-        return teamUpYellow;
-      default:
-        return teamUpPurple;
-    }
-  }
-
   IconData _projectIcon(Map<String, dynamic> project) {
     switch (project['tag']?.toString()) {
       case 'Mobile':
@@ -552,7 +535,8 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
           ),
           action: SnackBarAction(
             label: 'Hoàn tác',
-            onPressed: () => _store.setProjectHidden(id, !hide).catchError((_) {}),
+            onPressed: () =>
+                _store.setProjectHidden(id, !hide).catchError((_) {}),
           ),
         ),
       );
@@ -616,7 +600,20 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     final name = project['name']?.toString() ?? 'Dự án';
     final tag = project['tag']?.toString() ?? '';
     final role = _store.roleInProject(id);
-    final color = _projectColor(project);
+    const accents = [
+      Color(0xFF8873B5),
+      Color(0xFF4F92B6),
+      Color(0xFFB76F96),
+      Color(0xFF56988A),
+      Color(0xFFC19455),
+    ];
+    final ids =
+        _store.projectsForCurrentUser().map((p) => p['id'].toString()).toList()
+          ..sort();
+    final paletteIndex = ids.indexOf(id);
+    final color =
+        accents[(paletteIndex < 0 ? index : paletteIndex) % accents.length];
+    final pastel = Color.lerp(Colors.white, color, .14)!;
     final progress = _projectProgress(id);
     final tasks = _store.tasksForProject(id);
     final completed = tasks.where((t) => t['status'] == 'Hoàn thành').length;
@@ -627,16 +624,17 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
         button: true,
         label: 'Dự án $name, hoàn thành $progress%',
         child: Material(
-          color: Colors.white,
+          color: pastel,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
-            side: const BorderSide(color: _borderColor),
+            side: BorderSide(color: color.withValues(alpha: .18)),
           ),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: () => _openProject(project),
             child: Container(
               decoration: BoxDecoration(
+                gradient: pastelGradient(pastel),
                 border: Border(left: BorderSide(color: color, width: 4)),
               ),
               padding: const EdgeInsets.all(18),
@@ -650,7 +648,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                         width: 46,
                         height: 46,
                         decoration: BoxDecoration(
-                          color: color.withValues(alpha: .12),
+                          color: Colors.white.withValues(alpha: .85),
                           borderRadius: BorderRadius.circular(14),
                         ),
                         child: Icon(
@@ -744,10 +742,10 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                       ),
                       Text(
                         '$progress%',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
-                          color: teamUpDarkPurple,
+                          color: color,
                         ),
                       ),
                     ],
@@ -758,8 +756,8 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                     child: LinearProgressIndicator(
                       value: progress / 100,
                       minHeight: 6,
-                      backgroundColor: AppColors.purpleSoft,
-                      color: progress == 100 ? teamUpGreen : teamUpPurple,
+                      backgroundColor: Colors.white.withValues(alpha: .85),
+                      color: progress == 100 ? teamUpGreen : color,
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -887,8 +885,8 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
             end: Alignment.bottomCenter,
             stops: [0, .24, .50, .80],
             colors: [
-              Color(0xFF788CDD),
-              Color(0xFFA68AE5),
+              Color(0xFF8371D0),
+              Color(0xFFB798EB),
               Color(0xFFE6DDF8),
               Color(0xFFF8F7FA),
             ],
@@ -909,48 +907,41 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                 32,
               ),
               children: [
-                Text(
-                  '$day · ${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    letterSpacing: 1.2,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFFEFEAFF),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  '$_greeting, ${_displayName.isEmpty ? 'bạn' : _displayName}!',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 24,
-                    height: 1.2,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -.5,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 9),
-                Text(
-                  _store.projectsLoading
-                      ? 'Đang tải không gian làm việc…'
-                      : '$_visibleCount dự án · $_motivation',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFFF5F0FF),
-                    height: 1.5,
+                GreetingReveal(
+                  child: TeamGreetingCard(
+                    dateLabel:
+                        '$day · ${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}',
+                    greeting:
+                        '$_greeting, ${_displayName.isEmpty ? 'bạn' : _displayName}!',
+                    description: _store.projectsLoading
+                        ? 'Đang tải không gian làm việc…'
+                        : '$_visibleCount dự án · $_motivation',
+                    night: now.hour >= 18 || now.hour < 5,
                   ),
                 ),
                 const SizedBox(height: 22),
                 TextField(
                   controller: _searchController,
                   onChanged: (_) => setState(() {}),
-                  style: const TextStyle(color: Colors.white),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
                   cursorColor: Colors.white,
                   decoration: InputDecoration(
                     hintText: 'Tìm kiếm dự án…',
-                    hintStyle: const TextStyle(color: Color(0xFFF3EEFF)),
+                    hintStyle: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                      shadows: [
+                        Shadow(
+                          color: Color(0x554D4379),
+                          blurRadius: 4,
+                          offset: Offset(0, 1),
+                        ),
+                      ],
+                    ),
                     prefixIcon: const Icon(
                       Icons.search_rounded,
                       size: 22,

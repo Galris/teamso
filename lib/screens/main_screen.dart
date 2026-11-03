@@ -1,7 +1,6 @@
 import 'notify/notification_navigation.dart';
 
 import 'dart:async';
-import 'dart:ui' as ui;
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 
@@ -199,7 +198,7 @@ class _MainScreenState extends State<MainScreen>
           : AppBar(
               toolbarHeight: 80,
               backgroundColor: _currentIndex == 0
-                  ? const Color(0xFF788CDD)
+                  ? const Color(0xFF8371D0)
                   : _currentIndex == 3
                   ? const Color(0xFF8D7ABD)
                   : const Color(0xFF867CB3),
@@ -222,31 +221,16 @@ class _MainScreenState extends State<MainScreen>
                             width: 60,
                             height: 60,
                             child: Transform.scale(
-                              scale: 1.2,
-                              child: Stack(
-                                fit: StackFit.expand,
-                                children: [
-                                  ImageFiltered(
-                                    imageFilter: ui.ImageFilter.blur(
-                                      sigmaX: 1.5,
-                                      sigmaY: 1.5,
-                                    ),
-                                    child: ColorFiltered(
-                                      colorFilter: const ColorFilter.mode(
-                                        Colors.white,
-                                        BlendMode.srcIn,
-                                      ),
-                                      child: Image.asset(
-                                        'assets/images/app_logo_transparent.png',
-                                        fit: BoxFit.contain,
-                                      ),
-                                    ),
-                                  ),
-                                  Image.asset(
-                                    'assets/images/app_logo_transparent.png',
-                                    fit: BoxFit.contain,
-                                  ),
-                                ],
+                              scale: 1.15,
+                              child: ColorFiltered(
+                                colorFilter: const ColorFilter.mode(
+                                  Colors.white,
+                                  BlendMode.srcIn,
+                                ),
+                                child: Image.asset(
+                                  'assets/images/app_logo_transparent.png',
+                                  fit: BoxFit.contain,
+                                ),
                               ),
                             ),
                           ),

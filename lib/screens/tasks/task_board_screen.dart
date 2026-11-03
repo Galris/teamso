@@ -233,10 +233,7 @@ class TaskBoardScreenState extends State<TaskBoardScreen> {
     }
 
     try {
-      await _store.submitTask(
-        task['id'].toString(),
-        outputLink: result,
-      );
+      await _store.submitTask(task['id'].toString(), outputLink: result);
 
       if (!mounted) return;
       setState(() {});
@@ -550,7 +547,7 @@ class TaskBoardScreenState extends State<TaskBoardScreen> {
       padding: const EdgeInsets.fromLTRB(6, 0, 6, 6),
       decoration: AccentBoxDecoration(
         accent: color,
-        color: color.withValues(alpha: .10),
+        gradient: pastelGradient(Color.lerp(Colors.white, color, .12)!),
         borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
