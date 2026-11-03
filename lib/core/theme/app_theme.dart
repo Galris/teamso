@@ -1,3 +1,5 @@
+import 'accent_surface.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 
@@ -103,7 +105,7 @@ abstract final class AppTheme {
         color: Colors.white,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(
+        shape: AccentCardBorder(
           borderRadius: BorderRadius.circular(AppSpacing.radius),
           side: const BorderSide(color: AppColors.border),
         ),

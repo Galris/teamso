@@ -1,3 +1,6 @@
+import 'notification_navigation.dart';
+import '../../core/theme/accent_surface.dart';
+
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -11,7 +14,8 @@ import '../tasks/task_store.dart';
 
 /// Thông báo đọc trực tiếp từ `users/{uid}/notifications` qua stream realtime.
 class NotificationScreen extends StatefulWidget {
-  const NotificationScreen({super.key, this.session, this.unread});
+  const NotificationScreen({super.key, this.session, this.unread, this.onTask});
+  final void Function(String projectId, String taskId)? onTask;
   final SessionController? session;
 
   /// Báo số thông báo chưa đọc lên MainScreen để hiện badge.
@@ -274,7 +278,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
     _NotificationType.vote => Icons.poll_outlined,
     _NotificationType.document => Icons.description_outlined,
     _NotificationType.project => Icons.group_add_outlined,
-    _NotificationType.pendingReview => Icons.hourglass_top_rounded,
+    _NotificationType.pendingReview => Icons.hourglass_empty_rounded,
     _NotificationType.reviewRequired => Icons.fact_check_outlined,
     _NotificationType.revisionRequired => Icons.edit_note_rounded,
   };
@@ -486,7 +490,15 @@ class _NotificationScreenState extends State<NotificationScreen> {
         borderRadius: BorderRadius.circular(22),
         child: InkWell(
           borderRadius: BorderRadius.circular(22),
-          onTap: () => _showDetail(n),
+          onTap: () {
+            final session = widget.session;
+            if (session != null) {
+              NotificationNavigation.open(context, session, {
+                'id': n.id,
+              }, onTask: widget.onTask);
+            }
+          },
+          onLongPress: () => _showDetail(n),
           child: Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
@@ -616,7 +628,8 @@ class _NotificationScreenState extends State<NotificationScreen> {
           Container(
             margin: const EdgeInsets.fromLTRB(16, 16, 16, 6),
             padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-            decoration: BoxDecoration(
+            decoration: AccentBoxDecoration(
+              accent: AppColors.purple,
               gradient: const LinearGradient(
                 colors: [Color(0xFFE8E5FA), Color(0xFFF7EAF4)],
               ),
@@ -700,13 +713,9 @@ class _TypeBadge extends StatelessWidget {
   final IconData icon;
   final Color color;
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => SizedBox(
     width: 46,
     height: 46,
-    decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: .86),
-      borderRadius: BorderRadius.circular(12),
-    ),
-    child: Icon(icon, color: color, size: 27),
+    child: Icon(icon, color: color, size: 30),
   );
 }

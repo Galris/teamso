@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import '../../core/theme/accent_surface.dart';
 import '../home/project_detail_screen.dart';
 
 import 'package:flutter/material.dart';
@@ -7,7 +10,6 @@ import 'task_calendar.dart';
 import 'task_store.dart';
 import '../../core/theme/app_colors.dart';
 
-
 const Color _textPrimary = Color(0xFF282638);
 const Color _textSecondary = Color(0xFF858397);
 
@@ -15,10 +17,60 @@ class TaskBoardScreen extends StatefulWidget {
   const TaskBoardScreen({super.key});
 
   @override
-  State<TaskBoardScreen> createState() => _TaskBoardScreenState();
+  State<TaskBoardScreen> createState() => TaskBoardScreenState();
 }
 
-class _TaskBoardScreenState extends State<TaskBoardScreen> {
+class TaskBoardScreenState extends State<TaskBoardScreen> {
+  String? _notificationProject, _notificationTask;
+  Timer? _notificationTimeout;
+
+  @override
+  void initState() {
+    super.initState();
+    _store.addListener(_openPendingNotification);
+  }
+
+  void openFromNotification(String projectId, String taskId) {
+    _notificationTimeout?.cancel();
+    _notificationProject = projectId;
+    _notificationTask = taskId;
+    setState(() {
+      _viewMode = 0;
+      _focusedStatus = null;
+    });
+    _notificationTimeout = Timer(const Duration(seconds: 15), () {
+      if (!mounted || _notificationTask == null) return;
+      _notificationTask = null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Chưa tải được công việc. Vui lòng thử lại thông báo.'),
+        ),
+      );
+    });
+    _openPendingNotification();
+  }
+
+  void _openPendingNotification() {
+    if (!mounted || _notificationTask == null) return;
+    final task = _store.tasks
+        .where(
+          (t) =>
+              t['id'] == _notificationTask &&
+              t['projectId'] == _notificationProject,
+        )
+        .firstOrNull;
+    if (task == null) return;
+    _notificationTask = null;
+    _notificationTimeout?.cancel();
+    final status = task['status']?.toString() ?? 'Cần làm';
+    final review =
+        status == 'Chờ duyệt' &&
+        _store.roleInProject(task['projectId'].toString()) == 'Leader';
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _openTask(task, review ? 'Cần bạn duyệt' : status);
+    });
+  }
+
   final TaskStore _store = TaskStore.instance;
 
   final ScrollController _statusScroll = ScrollController();
@@ -276,6 +328,8 @@ class _TaskBoardScreenState extends State<TaskBoardScreen> {
 
   @override
   void dispose() {
+    _notificationTimeout?.cancel();
+    _store.removeListener(_openPendingNotification);
     _statusScroll.dispose();
     super.dispose();
   }
@@ -352,7 +406,11 @@ class _TaskBoardScreenState extends State<TaskBoardScreen> {
             listenable: _store,
             builder: (context, _) {
               final current = _store.tasks
-                  .where((t) => t['id'] == taskId)
+                  .where(
+                    (t) =>
+                        t['id'] == taskId &&
+                        t['projectId'] == task['projectId'],
+                  )
                   .firstOrNull;
               return SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
@@ -377,7 +435,8 @@ class _TaskBoardScreenState extends State<TaskBoardScreen> {
     final date = _formatDate(task['dueDate']?.toString());
     return Material(
       color: Colors.white.withValues(alpha: .92),
-      borderRadius: BorderRadius.circular(20),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
         onTap: () => _openTask(task, group),
@@ -495,7 +554,8 @@ class _TaskBoardScreenState extends State<TaskBoardScreen> {
     return Container(
       margin: const EdgeInsets.only(top: 16),
       padding: const EdgeInsets.fromLTRB(6, 0, 6, 6),
-      decoration: BoxDecoration(
+      decoration: AccentBoxDecoration(
+        accent: color,
         color: color.withValues(alpha: .10),
         borderRadius: BorderRadius.circular(24),
       ),
@@ -874,7 +934,7 @@ class _TaskBoardScreenState extends State<TaskBoardScreen> {
                       Icon(
                         i == 0
                             ? Icons.format_list_bulleted_rounded
-                            : Icons.calendar_month_rounded,
+                            : Icons.calendar_month_outlined,
                         size: 18,
                         color: _viewMode == i ? Colors.white : teamUpDarkPurple,
                       ),

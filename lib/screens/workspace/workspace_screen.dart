@@ -1,3 +1,6 @@
+import 'workspace_dialog_style.dart';
+import '../../core/theme/accent_surface.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -13,7 +16,15 @@ import 'vote_dialogs.dart';
 /// Workspace theo từng dự án:
 /// Tài liệu, Quick Vote nhiều lựa chọn và lịch họp.
 class WorkspaceScreen extends StatefulWidget {
-  const WorkspaceScreen({super.key, this.session});
+  const WorkspaceScreen({
+    super.key,
+    this.session,
+    this.initialProject,
+    this.focusCollection,
+    this.focusId,
+  });
+  final Map<String, dynamic>? initialProject;
+  final String? focusCollection, focusId;
 
   final SessionController? session;
 
@@ -38,6 +49,26 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   StreamSubscription? _meetingsSub;
   StreamSubscription? _votesSub;
   StreamSubscription? _membersSub;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialProject;
+    if (initial != null) {
+      _projectId = initial['id'].toString();
+      _listen();
+    }
+  }
+
+  List<Map<String, dynamic>> get _projects {
+    final rows = TaskStore.instance.projectsForCurrentUser();
+    final initial = widget.initialProject;
+    return [
+      if (initial != null && !rows.any((p) => p['id'] == initial['id']))
+        initial,
+      ...rows,
+    ];
+  }
 
   @override
   void dispose() {
@@ -118,7 +149,11 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
             if (!mounted || _projectId != projectId) return;
 
             setState(() {
-              _documents = rows;
+              _documents =
+                  widget.focusCollection == 'documents' &&
+                      widget.focusId != null
+                  ? rows.where((row) => row['id'] == widget.focusId).toList()
+                  : rows;
               _loaded.add('documents');
               _loading = _error == null && _loaded.length < 3;
             });
@@ -135,7 +170,10 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
             if (!mounted || _projectId != projectId) return;
 
             setState(() {
-              _meetings = rows;
+              _meetings =
+                  widget.focusCollection == 'meetings' && widget.focusId != null
+                  ? rows.where((row) => row['id'] == widget.focusId).toList()
+                  : rows;
               _loaded.add('meetings');
               _loading = _error == null && _loaded.length < 3;
             });
@@ -152,7 +190,10 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
             if (!mounted || _projectId != projectId) return;
 
             setState(() {
-              _votes = rows;
+              _votes =
+                  widget.focusCollection == 'votes' && widget.focusId != null
+                  ? rows.where((row) => row['id'] == widget.focusId).toList()
+                  : rows;
               _loaded.add('votes');
               _loading = _error == null && _loaded.length < 3;
             });
@@ -166,16 +207,14 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   }
 
   void _listenMembers(String projectId) {
-    _membersSub = widget.session!.projects
-        .watchMembers(projectId)
-        .listen(
-          (rows) {
-            if (!mounted || _projectId != projectId) return;
-            setState(() => _members = rows);
-          },
-          // Lưới lịch họp chỉ là phần hiển thị phụ, lỗi ở đây không chặn Workspace.
-          onError: (Object _) {},
-        );
+    _membersSub = widget.session!.projects.watchMembers(projectId).listen(
+      (rows) {
+        if (!mounted || _projectId != projectId) return;
+        setState(() => _members = rows);
+      },
+      // Lưới lịch họp chỉ là phần hiển thị phụ, lỗi ở đây không chặn Workspace.
+      onError: (Object _) {},
+    );
   }
 
   void _onError(Object error) {
@@ -461,18 +500,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     final voteId = vote['id'].toString();
 
     final result = await showVoteBallotDialog(context, vote: vote);
-
     if (!mounted || result == null) return;
-
-    await _guard(
-      () => widget.session!.workspace.voteMultiple(projectId, voteId, result),
-      result.isEmpty
-          ? 'Đã bỏ toàn bộ lựa chọn.'
-          : 'Đã cập nhật lựa chọn bình chọn.',
-    );
-
-    if (!mounted || result == null) return;
-
     await _guard(
       () => widget.session!.workspace.voteMultiple(projectId, voteId, result),
       result.isEmpty
@@ -534,10 +562,14 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   }) {
     final accent = switch (title) {
       'Bình chọn nhóm' => const Color(0xFFA34076),
-      'Lịch họp nhóm' => const Color(0xFF3968A8),
-      _ => const Color(0xFF6B509C),
+      'Lịch họp nhóm' => const Color(0xFF7860A3),
+      _ => const Color(0xFF477F9C),
     };
     return Card(
+      shape: AccentCardBorder(
+        accent: accent,
+        side: BorderSide(color: accent.withValues(alpha: .12)),
+      ),
       color: color,
       margin: const EdgeInsets.only(bottom: 16),
       child: Padding(
@@ -547,35 +579,20 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
           children: [
             Row(
               children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [accent.withValues(alpha: .78), accent],
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: accent.withValues(alpha: .20),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Icon(icon, size: 28, color: Colors.white),
+                SizedBox(
+                  width: 36,
+                  height: 44,
+                  child: Icon(icon, size: 28, color: accent),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     title,
                     style: TextStyle(
-                      fontSize: 22,
+                      fontSize: 20,
                       height: 1.15,
                       letterSpacing: -.4,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w800,
                       color: accent,
                     ),
                   ),
@@ -583,8 +600,13 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                 if (onAdd != null)
                   IconButton.filledTonal(
                     style: IconButton.styleFrom(
-                      backgroundColor: Colors.white.withValues(alpha: .85),
+                      fixedSize: const Size(44, 44),
+                      padding: EdgeInsets.zero,
+                      shape: const CircleBorder(),
+                      backgroundColor: Colors.white,
                       foregroundColor: accent,
+                      disabledBackgroundColor: Colors.white,
+                      disabledForegroundColor: accent.withValues(alpha: .4),
                     ),
                     tooltip: 'Thêm mới',
                     onPressed: _busy ? null : onAdd,
@@ -665,24 +687,60 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
 
     return Column(
       children: [
-        for (final doc in _documents)
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: _docLeading(doc),
-            title: Text((doc['label'] ?? 'Tài liệu').toString()),
-            subtitle: (doc['url'] ?? '').toString().isNotEmpty
-                ? Text(
-                    doc['url'].toString(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  )
-                : null,
-            onTap: (doc['url'] ?? '').toString().isEmpty
-                ? null
-                : () => _openDocument(doc['url'].toString()),
-            trailing: _deleteButton(doc, 'documents', 'tài liệu'),
-          ),
+        for (var i = 0; i < _documents.length; i++) ...[
+          if (i > 0) const SizedBox(height: 10),
+          _documentRow(_documents[i]),
+        ],
       ],
+    );
+  }
+
+  Widget _documentRow(Map<String, dynamic> doc) {
+    final url = (doc['url'] ?? '').toString();
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: url.isEmpty ? null : () => _openDocument(url),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 14, 6, 14),
+          child: Row(
+            children: [
+              _docLeading(doc),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      (doc['label'] ?? 'Tài liệu').toString(),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF332A52),
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      url.isEmpty ? 'Chưa có liên kết' : url,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF748296),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _deleteButton(doc, 'documents', 'tài liệu'),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -698,11 +756,24 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     return Column(
       children: [
         for (final meeting in _meetings)
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.event_outlined),
-            title: Text((meeting['label'] ?? 'Cuộc họp').toString()),
-            trailing: _deleteButton(meeting, 'meetings', 'lịch họp'),
+          Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 6,
+              ),
+              leading: const Icon(
+                Icons.event_outlined,
+                color: Color(0xFF7860A3),
+              ),
+              title: Text((meeting['label'] ?? 'Cuộc họp').toString()),
+              trailing: _deleteButton(meeting, 'meetings', 'lịch họp'),
+            ),
           ),
       ],
     );
@@ -730,7 +801,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                     vertical: 12,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: .8),
+                    color: Colors.white,
                     borderRadius: BorderRadius.circular(14),
                     border: const Border(
                       left: BorderSide(color: Color(0xFFA34076), width: 4),
@@ -774,8 +845,6 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          const Divider(),
           const SizedBox(height: 12),
         ],
       ],
@@ -849,9 +918,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 5),
             child: Material(
-              color: myVotes.contains(i)
-                  ? const Color(0xFFF0E9FC)
-                  : const Color(0xFFFAF9FD),
+              color: Colors.white,
               borderRadius: BorderRadius.circular(18),
               child: InkWell(
                 borderRadius: BorderRadius.circular(18),
@@ -907,68 +974,75 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 20),
-      child: DropdownButtonFormField<String>(
-        key: ValueKey(_projectId),
-        initialValue:
-            projects.any((project) => project['id'].toString() == _projectId)
-            ? _projectId
-            : projects.first['id'].toString(),
-        isExpanded: true,
-        style: const TextStyle(
-          fontSize: 17,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFF332A52),
-        ),
-        icon: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
-          decoration: BoxDecoration(
-            color: const Color(0xFFE8E0F7),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Icon(
-            Icons.expand_more_rounded,
-            color: Color(0xFF4D4379),
-            size: 26,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: const LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [Color(0xFFDCCCF3), Color(0xFFECE0F8), Color(0xFFF8E8F4)],
           ),
         ),
-        decoration: InputDecoration(
-          filled: true,
-          fillColor: const Color(0xFFF5F1FB),
-          prefixIcon: const Icon(
-            Icons.folder_rounded,
-            color: Color(0xFF867CB3),
+        child: DropdownButtonFormField<String>(
+          key: ValueKey(_projectId),
+          initialValue:
+              projects.any((project) => project['id'].toString() == _projectId)
+              ? _projectId
+              : projects.first['id'].toString(),
+          isExpanded: true,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF332A52),
           ),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 14,
+          dropdownColor: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          menuMaxHeight: 320,
+          icon: const Icon(
+            Icons.keyboard_arrow_down_rounded,
+            color: Color(0xFF7666A5),
+            size: 24,
           ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide.none,
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide.none,
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(color: Color(0xFF867CB3), width: 2),
-          ),
-        ),
-        items: [
-          for (final project in projects)
-            DropdownMenuItem<String>(
-              value: project['id'].toString(),
-              child: Text(
-                (project['name'] ?? 'Dự án').toString(),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.transparent,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 18,
+              vertical: 16,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(18),
+              borderSide: const BorderSide(color: Color(0xFFE2DAF0)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(18),
+              borderSide: const BorderSide(color: Color(0xFFE2DAF0)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(18),
+              borderSide: const BorderSide(
+                color: Color(0xFF867CB3),
+                width: 1.5,
               ),
             ),
-        ],
-        onChanged: (id) {
-          if (id != null) _pickProject(id);
-        },
+          ),
+          items: [
+            for (final project in projects)
+              DropdownMenuItem<String>(
+                value: project['id'].toString(),
+                child: Text(
+                  (project['name'] ?? 'Dự án').toString(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
+          onChanged: widget.focusCollection != null
+              ? null
+              : (id) {
+                  if (id != null) _pickProject(id);
+                },
+        ),
       ),
     );
   }
@@ -982,12 +1056,12 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     return ListenableBuilder(
       listenable: TaskStore.instance,
       builder: (context, _) {
-        final projects = TaskStore.instance.projectsForCurrentUser();
+        final projects = _projects;
 
         // Tránh setState trong build.
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
-            _syncProject(TaskStore.instance.projectsForCurrentUser());
+            _syncProject(_projects);
           }
         });
 
@@ -1025,27 +1099,33 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                   onAction: _listen,
                 )
               else ...[
-                _buildSection(
-                  title: 'Tài liệu nhóm',
-                  color: const Color(0xFFECE4FA),
-                  icon: Icons.folder_outlined,
-                  onAdd: _addDocument,
-                  child: _buildDocuments(),
-                ),
-                _buildSection(
-                  title: 'Bình chọn nhóm',
-                  onAdd: _createVote,
-                  color: const Color(0xFFFBE7F0),
-                  icon: Icons.how_to_vote_outlined,
-                  child: _buildVotes(),
-                ),
-                _buildSection(
-                  title: 'Lịch họp nhóm',
-                  color: const Color(0xFFE6EEFF),
-                  icon: Icons.groups_outlined,
-                  onAdd: _addMeeting,
-                  child: _buildMeetings(),
-                ),
+                if (widget.focusCollection == null ||
+                    widget.focusCollection == 'documents')
+                  _buildSection(
+                    title: 'Tài liệu nhóm',
+                    color: const Color(0xFFE8F3F8),
+                    icon: Icons.library_books_outlined,
+                    onAdd: _addDocument,
+                    child: _buildDocuments(),
+                  ),
+                if (widget.focusCollection == null ||
+                    widget.focusCollection == 'votes')
+                  _buildSection(
+                    title: 'Bình chọn nhóm',
+                    onAdd: _createVote,
+                    color: const Color(0xFFFCEEF4),
+                    icon: Icons.how_to_vote_outlined,
+                    child: _buildVotes(),
+                  ),
+                if (widget.focusCollection == null ||
+                    widget.focusCollection == 'meetings')
+                  _buildSection(
+                    title: 'Lịch họp nhóm',
+                    color: const Color(0xFFF0EAF8),
+                    icon: Icons.groups_outlined,
+                    onAdd: _addMeeting,
+                    child: _buildMeetings(),
+                  ),
               ],
             ],
           ),
@@ -1088,32 +1168,58 @@ class _WorkspaceInputDialogState extends State<_WorkspaceInputDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    scrollable: true,
-    title: Text(widget.title),
-    content: Form(
-      key: _form,
-      child: TextFormField(
-        controller: _controller,
-        autofocus: true,
-        maxLength: widget.maxLength,
-        decoration: InputDecoration(labelText: widget.label),
-        validator: (value) {
-          final text = (value ?? '').trim();
-          if (!widget.optional && text.isEmpty) {
-            return 'Vui lòng nhập nội dung.';
-          }
-          return widget.validate?.call(text);
-        },
-        onFieldSubmitted: (_) => _save(),
+  Widget build(BuildContext context) {
+    final meeting = widget.title.contains('họp');
+    final vote = widget.title.contains('đáp án');
+    final accent = meeting
+        ? const Color(0xFF7860A3)
+        : vote
+        ? const Color(0xFFA34076)
+        : const Color(0xFF477F9C);
+    final tint = meeting
+        ? const Color(0xFFF5F0FB)
+        : vote
+        ? const Color(0xFFFFF1F7)
+        : const Color(0xFFF0F8FC);
+    return WorkspaceDialogStyle(
+      accent: accent,
+      tint: tint,
+      child: AlertDialog(
+        scrollable: true,
+        title: WorkspaceDialogTitle(
+          widget.title,
+          icon: meeting
+              ? Icons.event_outlined
+              : vote
+              ? Icons.how_to_vote_outlined
+              : Icons.library_books_outlined,
+          color: accent,
+        ),
+        content: Form(
+          key: _form,
+          child: TextFormField(
+            controller: _controller,
+            autofocus: true,
+            maxLength: widget.maxLength,
+            decoration: InputDecoration(labelText: widget.label),
+            validator: (value) {
+              final text = (value ?? '').trim();
+              if (!widget.optional && text.isEmpty) {
+                return 'Vui lòng nhập nội dung.';
+              }
+              return widget.validate?.call(text);
+            },
+            onFieldSubmitted: (_) => _save(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(onPressed: _save, child: const Text('Lưu')),
+        ],
       ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Hủy'),
-      ),
-      FilledButton(onPressed: _save, child: const Text('Lưu')),
-    ],
-  );
+    );
+  }
 }

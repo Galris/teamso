@@ -1,3 +1,4 @@
+import 'chat_panel.dart';
 import 'project_chat_list.dart';
 import 'direct_chat_room.dart';
 import '../projects/create_project_screen.dart';
@@ -10,7 +11,6 @@ import 'package:flutter/material.dart';
 
 import '../../controllers/session_controller.dart';
 import '../../core/theme/app_colors.dart';
-import '../../core/theme/chat_palette.dart';
 import '../../services/service_errors.dart';
 import '../../widgets/app_widgets.dart';
 import '../../widgets/auth_widgets.dart';
@@ -24,11 +24,15 @@ class ChatScreen extends StatefulWidget {
     this.userName = '',
     this.active = true,
     this.unread,
+    this.onRoomChanged,
+    this.initialProject,
   });
   final SessionController? session;
+  final Map<String, dynamic>? initialProject;
   final String userName;
   final bool active;
   final ValueNotifier<int>? unread;
+  final ValueChanged<bool>? onRoomChanged;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -111,6 +115,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   String get _me =>
       widget.userName.trim().isEmpty ? 'Tôi' : widget.userName.trim();
 
+  List<Map<String, dynamic>> get _projects {
+    final rows = TaskStore.instance.projectsForCurrentUser();
+    final initial = widget.initialProject;
+    return [
+      if (initial != null && !rows.any((p) => p['id'] == initial['id']))
+        initial,
+      ...rows,
+    ];
+  }
+
   @override
   void initState() {
     super.initState();
@@ -130,6 +144,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     });
     TaskStore.instance.addListener(_syncRooms);
     _syncRooms();
+    if (widget.initialProject != null)
+      _pickProject(widget.initialProject!['id'].toString());
     _messageController.addListener(() {
       final has = _messageController.text.trim().isNotEmpty;
       if (has != _hasText) setState(() => _hasText = has);
@@ -210,7 +226,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               ),
             ),
             ListTile(
-              leading: const Icon(Icons.groups_rounded),
+              leading: const Icon(Icons.groups_outlined),
               title: const Text('Chat nhóm theo dự án'),
               subtitle: const Text('Chọn dự án hoặc tạo dự án mới'),
               onTap: () => Navigator.pop(sheet, 0),
@@ -228,7 +244,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
     if (!mounted || type == null) return;
     if (type == 0) {
-      final projects = TaskStore.instance.projectsForCurrentUser();
+      final projects = _projects;
       final id = await showModalBottomSheet<String>(
         context: context,
         showDragHandle: true,
@@ -245,7 +261,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               ),
               for (final p in projects)
                 ListTile(
-                  leading: const Icon(Icons.groups_rounded),
+                  leading: const Icon(Icons.groups_outlined),
                   title: Text('${p['name'] ?? 'Dự án'}'),
                   onTap: () => Navigator.pop(sheet, p['id'].toString()),
                 ),
@@ -356,7 +372,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void _syncRooms() {
     if (!mounted) return;
     final session = widget.session;
-    final projects = TaskStore.instance.projectsForCurrentUser();
+    final projects = _projects;
     final ids = projects.map((p) => p['id'].toString()).toSet();
     _updateBadge();
     for (final id
@@ -370,6 +386,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _chatSub?.cancel();
       _chatSub = null;
       _projectId = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onRoomChanged?.call(false);
+      });
       _messages = const [];
       _messageController.clear();
     }
@@ -405,19 +424,23 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   void _pickProject(String projectId) {
-    if (!TaskStore.instance.projectsForCurrentUser().any(
-      (p) => p['id'].toString() == projectId,
-    )) {
+    if (!_projects.any((p) => p['id'].toString() == projectId)) {
       return;
     }
     if (_projectId == projectId) return;
     _messageController.clear();
     _projectId = projectId;
+    widget.onRoomChanged?.call(true);
     _latestMessageId = null;
     _listen();
   }
 
   void _leaveRoom() {
+    if (widget.initialProject != null) {
+      Navigator.of(context).pop();
+      return;
+    }
+    widget.onRoomChanged?.call(false);
     _chatGeneration++;
     _chatSub?.cancel();
     _chatSub = null;
@@ -679,13 +702,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       (p) => p['id'].toString() == _projectId,
       orElse: () => {},
     );
-    final (tone, accent) = chatRoomColors(_projectId ?? '');
+    const accent = Colors.white;
     return Container(
       padding: const EdgeInsets.fromLTRB(8, 8, 16, 10),
-      decoration: BoxDecoration(
-        color: tone,
-        border: Border(left: BorderSide(color: accent, width: 6)),
-      ),
+      color: chatHeaderColor,
       child: Row(
         children: [
           IconButton(
@@ -695,7 +715,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ),
           CircleAvatar(
             backgroundColor: Colors.white.withValues(alpha: .8),
-            child: Icon(Icons.groups_rounded, color: accent),
+            child: Icon(Icons.groups_outlined, color: AppColors.darkPurple),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -716,7 +736,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 Text(
                   '${(project['memberIds'] as List? ?? const []).toSet().union({if ((project['ownerId'] ?? '').toString().isNotEmpty) project['ownerId']}).length} thành viên',
                   style: const TextStyle(
-                    color: AppColors.textSecondary,
+                    color: Color(0xFFEAE2FA),
                     fontSize: 12,
                   ),
                 ),
@@ -733,7 +753,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     listenable: TaskStore.instance,
     builder: (context, _) {
       final store = TaskStore.instance;
-      final projects = store.projectsForCurrentUser();
+      final projects = _projects;
       if (_projectId == null) {
         final combined = [
           ...projects,
@@ -824,14 +844,31 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ],
         );
       }
-      return DecoratedBox(
-        decoration: const BoxDecoration(color: Colors.white),
-        child: Column(
-          children: [
-            _header(projects),
-            Expanded(child: _body(false)),
-            _inputBar(),
-          ],
+      return PopScope(
+        canPop: widget.initialProject != null,
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop) _leaveRoom();
+        },
+        child: ColoredBox(
+          color: chatHeaderColor,
+          child: SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                _header(projects),
+                Expanded(
+                  child: ChatPanel(
+                    child: Column(
+                      children: [
+                        Expanded(child: _body(false)),
+                        _inputBar(),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       );
     },

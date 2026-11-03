@@ -1,3 +1,5 @@
+import '../../core/theme/accent_surface.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -217,7 +219,8 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
+                decoration: AccentBoxDecoration(
+                  accent: _purple,
                   color: Colors.white.withValues(alpha: .65),
                   borderRadius: BorderRadius.circular(22),
                 ),
@@ -273,7 +276,8 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
   Widget _summary(String label, int count, IconData icon, Color color) =>
       Container(
         padding: const EdgeInsets.all(15),
-        decoration: BoxDecoration(
+        decoration: AccentBoxDecoration(
+          accent: color,
           color: Colors.white.withValues(alpha: .85),
           borderRadius: BorderRadius.circular(21),
         ),
@@ -584,7 +588,8 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 28),
-      decoration: BoxDecoration(
+      decoration: AccentBoxDecoration(
+        accent: _purple,
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: _border),

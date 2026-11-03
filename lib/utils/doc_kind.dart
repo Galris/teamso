@@ -17,7 +17,7 @@ class DocKind {
   static const _kinds = <String, DocKind>{
     'docs': DocKind(
       label: 'Tài liệu',
-      icon: Icons.description_rounded,
+      icon: Icons.description_outlined,
       color: Color(0xFF4285F4),
     ),
     'sheets': DocKind(
@@ -37,7 +37,7 @@ class DocKind {
     ),
     'drive': DocKind(
       label: 'Drive',
-      icon: Icons.folder_rounded,
+      icon: Icons.folder_outlined,
       color: Color(0xFF439751),
     ),
     'meet': DocKind(
@@ -52,7 +52,7 @@ class DocKind {
     ),
     'teams': DocKind(
       label: 'Microsoft Teams',
-      icon: Icons.groups_rounded,
+      icon: Icons.groups_outlined,
       color: Color(0xFF867CB3),
     ),
     'notion': DocKind(

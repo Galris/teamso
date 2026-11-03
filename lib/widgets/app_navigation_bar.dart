@@ -25,20 +25,20 @@ const appDestinations = [
   AppDestination(
     'Workspace',
     'Workspace',
-    Icons.folder_outlined,
-    Icons.folder_rounded,
+    Icons.layers_outlined,
+    Icons.layers_outlined,
   ),
   AppDestination(
     'Chat',
     'Chat',
     Icons.chat_bubble_outline_rounded,
-    Icons.chat_bubble_rounded,
+    Icons.chat_bubble_outline_rounded,
   ),
   AppDestination(
     'Thông báo',
     'Thông báo',
     Icons.notifications_none_rounded,
-    Icons.notifications_rounded,
+    Icons.notifications_none_rounded,
   ),
 ];
 
@@ -66,7 +66,7 @@ Widget appDestinationIcon(
     duration: const Duration(milliseconds: 200),
     curve: Curves.easeOutBack,
     child: Icon(
-      selected ? destination.selectedIcon : destination.icon,
+      destination.icon,
       color: selected ? Colors.white : AppColors.textSecondary,
     ),
   );

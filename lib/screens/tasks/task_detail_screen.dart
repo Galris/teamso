@@ -1,3 +1,5 @@
+import '../../core/theme/accent_surface.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../models/task_model.dart';
@@ -129,7 +131,8 @@ class TaskDetailScreen extends StatelessWidget {
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
+                decoration: AccentBoxDecoration(
+                  accent: _taskPurple,
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(24),
                   border: Border.all(color: const Color(0xFFECEBF2)),
@@ -244,7 +247,8 @@ class TaskDetailScreen extends StatelessWidget {
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
+                decoration: AccentBoxDecoration(
+                  accent: _taskPurple,
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(24),
                   border: Border.all(color: const Color(0xFFECEBF2)),
@@ -280,7 +284,8 @@ class TaskDetailScreen extends StatelessWidget {
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
+                  decoration: AccentBoxDecoration(
+                    accent: _taskPink,
                     color: _taskPink.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(

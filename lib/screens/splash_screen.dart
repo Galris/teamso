@@ -23,8 +23,9 @@ class SplashScreen extends StatelessWidget {
                 child: Transform.scale(scale: value, child: child),
               ),
               child: Image.asset(
-                'assets/images/app_logo_text.png',
-                width: 260,
+                'assets/images/app_logo_transparent.png',
+                width: 150,
+                height: 150,
                 errorBuilder: (_, _, _) => const Text(
                   'TeamUp',
                   style: TextStyle(
@@ -35,7 +36,16 @@ class SplashScreen extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
+            const Text(
+              'TeamUp',
+              style: TextStyle(
+                fontSize: 34,
+                fontWeight: FontWeight.w800,
+                color: AppColors.darkPurple,
+              ),
+            ),
+            const SizedBox(height: 20),
             const SizedBox(
               width: 26,
               height: 26,

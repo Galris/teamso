@@ -1,3 +1,5 @@
+import '../../core/theme/accent_surface.dart';
+
 import 'package:flutter/foundation.dart';
 
 import '../../widgets/app_navigation_bar.dart';
@@ -609,7 +611,7 @@ class _Surface extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Material(
     color: color,
-    shape: RoundedRectangleBorder(
+    shape: AccentCardBorder(
       borderRadius: BorderRadius.circular(24),
       side: const BorderSide(color: _border),
     ),

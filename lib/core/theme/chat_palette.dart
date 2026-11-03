@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 final _roomIndices = <String, int>{};
 (Color, Color) chatRoomColors(String id) {
   const tones = [
-    Color(0xFFDDF2E9),
+    Color(0xFFE4F1FC),
     Color(0xFFFCE5D6),
     Color(0xFFE0EAFC),
     Color(0xFFFFF0DB),
@@ -14,7 +14,7 @@ final _roomIndices = <String, int>{};
     Color(0xFFECEBCF),
   ];
   const accents = [
-    Color(0xFF3D9379),
+    Color(0xFF568BB7),
     Color(0xFFC17B45),
     Color(0xFF527ABD),
     Color(0xFFB59336),

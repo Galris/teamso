@@ -1,3 +1,5 @@
+import 'chat_panel.dart';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -106,15 +108,7 @@ class _ProjectChatListState extends State<ProjectChatList> {
                     (b['name'] ?? '').toString(),
                   );
           });
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          stops: [0, .65, 1],
-          colors: [Color(0xFFE8E5FA), Colors.white, AppColors.pinkSoft],
-        ),
-      ),
+    return ChatPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -239,8 +233,8 @@ class _ProjectChatListState extends State<ProjectChatList> {
                               ),
                               child: Icon(
                                 id.startsWith('direct:')
-                                    ? Icons.person_rounded
-                                    : Icons.groups_rounded,
+                                    ? Icons.person_outline_rounded
+                                    : Icons.groups_outlined,
                                 color: accent,
                                 size: 26,
                               ),

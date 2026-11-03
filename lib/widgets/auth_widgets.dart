@@ -1,3 +1,5 @@
+import '../core/theme/accent_surface.dart';
+
 import 'package:flutter/material.dart';
 
 import '../core/theme/app_colors.dart';
@@ -96,7 +98,8 @@ class InlineError extends StatelessWidget {
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
+      decoration: AccentBoxDecoration(
+        accent: AppColors.danger,
         color: AppColors.dangerSoft,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppColors.danger.withValues(alpha: 0.25)),
@@ -152,7 +155,11 @@ class Avatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final r = radius ?? (large ? 45.0 : 30.0);
     final fallback = _initials.isEmpty
-        ? Icon(Icons.person_rounded, size: r * 1.2, color: AppColors.darkPurple)
+        ? Icon(
+            Icons.person_outline_rounded,
+            size: r * 1.2,
+            color: AppColors.darkPurple,
+          )
         : Text(
             _initials,
             style: TextStyle(

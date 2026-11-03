@@ -1,9 +1,10 @@
+import 'chat_panel.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 
 import '../../controllers/session_controller.dart';
-import '../../core/theme/chat_palette.dart';
 import '../../services/service_errors.dart';
 import '../../widgets/auth_widgets.dart';
 
@@ -139,12 +140,11 @@ class _DirectChatRoomState extends State<DirectChatRoom>
 
   @override
   Widget build(BuildContext context) {
-    final (tone, accent) = chatRoomColors('direct:${widget.id}');
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: tone,
-        foregroundColor: accent,
+        backgroundColor: chatHeaderColor,
+        foregroundColor: Colors.white,
         title: Row(
           children: [
             Avatar(radius: 19, name: widget.name),
@@ -170,122 +170,126 @@ class _DirectChatRoomState extends State<DirectChatRoom>
           ],
         ),
       ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            if (_error != null)
-              MaterialBanner(
-                content: Text(_error!),
-                actions: [
-                  TextButton(
-                    onPressed: () => _load(),
-                    child: const Text('Thử lại'),
-                  ),
-                ],
-              ),
-            Expanded(
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _messages.isEmpty
-                  ? const Center(
-                      child: Text('Gửi lời chào để bắt đầu cuộc trò chuyện.'),
-                    )
-                  : ListView.builder(
-                      controller: _scroll,
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _messages.length + (_hasMore ? 1 : 0),
-                      itemBuilder: (context, index) {
-                        if (_hasMore && index == 0)
-                          return TextButton(
-                            onPressed: () => _load(older: true),
-                            child: const Text('Xem tin nhắn cũ hơn'),
-                          );
-                        final m = _messages[index - (_hasMore ? 1 : 0)],
-                            me =
-                                m['senderId'] ==
-                                widget.session.auth.currentUserId;
-                        final date = DateTime.tryParse('${m['createdAt']}')
-                            ?.toLocal();
-                        return Align(
-                          alignment: me
-                              ? Alignment.centerRight
-                              : Alignment.centerLeft,
-                          child: Container(
-                            constraints: BoxConstraints(
-                              maxWidth: MediaQuery.sizeOf(context).width * .76,
-                            ),
-                            margin: const EdgeInsets.only(bottom: 10),
-                            padding: const EdgeInsets.all(13),
-                            decoration: BoxDecoration(
-                              color: me
-                                  ? const Color(0xFFE4D6F7)
-                                  : const Color(0xFFDCEEE5),
-                              borderRadius: BorderRadius.circular(22),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '${m['content'] ?? ''}',
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    height: 1.4,
-                                  ),
-                                ),
-                                if (date != null)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 5),
-                                    child: Text(
-                                      '${date.day}/${date.month} · ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}',
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.black54,
-                                      ),
+      body: ChatPanel(
+        child: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              if (_error != null)
+                MaterialBanner(
+                  content: Text(_error!),
+                  actions: [
+                    TextButton(
+                      onPressed: () => _load(),
+                      child: const Text('Thử lại'),
+                    ),
+                  ],
+                ),
+              Expanded(
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _messages.isEmpty
+                    ? const Center(
+                        child: Text('Gửi lời chào để bắt đầu cuộc trò chuyện.'),
+                      )
+                    : ListView.builder(
+                        controller: _scroll,
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _messages.length + (_hasMore ? 1 : 0),
+                        itemBuilder: (context, index) {
+                          if (_hasMore && index == 0)
+                            return TextButton(
+                              onPressed: () => _load(older: true),
+                              child: const Text('Xem tin nhắn cũ hơn'),
+                            );
+                          final m = _messages[index - (_hasMore ? 1 : 0)],
+                              me =
+                                  m['senderId'] ==
+                                  widget.session.auth.currentUserId;
+                          final date = DateTime.tryParse('${m['createdAt']}')
+                              ?.toLocal();
+                          return Align(
+                            alignment: me
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: Container(
+                              constraints: BoxConstraints(
+                                maxWidth:
+                                    MediaQuery.sizeOf(context).width * .76,
+                              ),
+                              margin: const EdgeInsets.only(bottom: 10),
+                              padding: const EdgeInsets.all(13),
+                              decoration: BoxDecoration(
+                                color: me
+                                    ? const Color(0xFFE4D6F7)
+                                    : const Color(0xFFDCEEE5),
+                                borderRadius: BorderRadius.circular(22),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${m['content'] ?? ''}',
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      height: 1.4,
                                     ),
                                   ),
-                              ],
+                                  if (date != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 5),
+                                      child: Text(
+                                        '${date.day}/${date.month} · ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}',
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.black54,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _text,
-                      maxLength: 2000,
-                      minLines: 1,
-                      maxLines: 5,
-                      onChanged: (_) => setState(() {}),
-                      decoration: const InputDecoration(
-                        hintText: 'Nhập tin nhắn…',
-                        counterText: '',
+                          );
+                        },
+                      ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _text,
+                        maxLength: 2000,
+                        minLines: 1,
+                        maxLines: 5,
+                        onChanged: (_) => setState(() {}),
+                        decoration: const InputDecoration(
+                          hintText: 'Nhập tin nhắn…',
+                          counterText: '',
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton.filled(
-                    tooltip: 'Gửi tin nhắn',
-                    onPressed: _sending || _text.text.trim().isEmpty
-                        ? null
-                        : _send,
-                    icon: _sending
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.send_rounded),
-                  ),
-                ],
+                    const SizedBox(width: 8),
+                    IconButton.filled(
+                      tooltip: 'Gửi tin nhắn',
+                      onPressed: _sending || _text.text.trim().isEmpty
+                          ? null
+                          : _send,
+                      icon: _sending
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.send_rounded),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

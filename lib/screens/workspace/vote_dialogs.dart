@@ -1,3 +1,5 @@
+import 'workspace_dialog_style.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../utils/doc_kind.dart';
@@ -247,210 +249,216 @@ class _VoteCreateDialogState extends State<_VoteCreateDialog> {
     final slots = _generatedSlots;
     final tooMany = slots.length >= _maxSlots;
 
-    return AlertDialog(
-      title: const Text('Tạo bình chọn'),
-      content: SizedBox(
-        width: 420,
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(
-                      value: 'general',
-                      icon: Icon(Icons.how_to_vote_outlined, size: 18),
-                      label: Text('Bình chọn thường'),
+    return WorkspaceDialogStyle(
+      accent: const Color(0xFFA34076),
+      tint: const Color(0xFFFFF1F7),
+      child: AlertDialog(
+        title: const WorkspaceDialogTitle(
+          'Tạo bình chọn',
+          icon: Icons.how_to_vote_outlined,
+          color: Color(0xFFA34076),
+        ),
+        content: SizedBox(
+          width: 420,
+          child: Form(
+            key: _formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(
+                        value: 'general',
+                        icon: Icon(Icons.how_to_vote_outlined, size: 18),
+                        label: Text('Bình chọn thường'),
+                      ),
+                      ButtonSegment(
+                        value: 'meeting',
+                        icon: Icon(Icons.schedule_rounded, size: 18),
+                        label: Text('Khung giờ họp'),
+                      ),
+                    ],
+                    selected: {_kind},
+                    showSelectedIcon: false,
+                    onSelectionChanged: (value) =>
+                        setState(() => _kind = value.first),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _question,
+                    autofocus: true,
+                    maxLength: 500,
+                    minLines: 1,
+                    maxLines: 3,
+                    textInputAction: TextInputAction.newline,
+                    decoration: InputDecoration(
+                      labelText: _kind == 'general'
+                          ? 'Nội dung bình chọn'
+                          : 'Chủ đề cần chọn khung giờ (VD: Họp review tuần)',
                     ),
-                    ButtonSegment(
-                      value: 'meeting',
-                      icon: Icon(Icons.schedule_rounded, size: 18),
-                      label: Text('Khung giờ họp'),
+                    validator: _validateQuestion,
+                  ),
+                  const SizedBox(height: 8),
+                  if (_kind == 'general') ...[
+                    for (var i = 0; i < _options.length; i++)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: TextFormField(
+                                controller: _options[i],
+                                maxLength: 120,
+                                decoration: InputDecoration(
+                                  labelText: 'Phương án ${i + 1}',
+                                  counterText: '',
+                                ),
+                                validator: _options.length <= 2 && i < 2
+                                    ? (value) => (value ?? '').trim().isEmpty
+                                          ? 'Không được để trống.'
+                                          : null
+                                    : null,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Xóa phương án',
+                              onPressed: _options.length <= 2
+                                  ? null
+                                  : () => _removeOption(i),
+                              icon: const Icon(Icons.remove_circle_outline),
+                            ),
+                          ],
+                        ),
+                      ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: _options.length >= _maxGeneralOptions
+                            ? null
+                            : _addOption,
+                        icon: const Icon(Icons.add),
+                        label: Text(
+                          'Thêm phương án (${_options.length}/'
+                          '$_maxGeneralOptions)',
+                        ),
+                      ),
+                    ),
+                  ] else ...[
+                    const Text(
+                      'Mọi người sẽ tích vào khung giờ mình rảnh, '
+                      'giống trang When2meet.',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _pickDate(isFrom: true),
+                            icon: const Icon(Icons.date_range, size: 18),
+                            label: Text(_dateLabel(_from)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _pickDate(isFrom: false),
+                            icon: const Icon(Icons.date_range, size: 18),
+                            label: Text(_dateLabel(_to)),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _pickTime(isStart: true),
+                            icon: const Icon(Icons.schedule, size: 18),
+                            label: Text(_timeLabel(_startMinutes)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _pickTime(isStart: false),
+                            icon: const Icon(Icons.schedule, size: 18),
+                            label: Text(_timeLabel(_endMinutes)),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Độ dài mỗi ô',
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        for (final length in _slotLengths)
+                          ChoiceChip(
+                            label: Text('$length phút'),
+                            selected: _slotLength == length,
+                            onSelected: (_) =>
+                                setState(() => _slotLength = length),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      slots.isEmpty
+                          ? 'Chưa có khung giờ nào.'
+                          : 'Sẽ có ${slots.length} khung giờ'
+                                '${tooMany ? ' (tối đa $_maxSlots)' : ''}.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: slots.isEmpty
+                            ? Theme.of(context).colorScheme.error
+                            : Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final slot in slots.take(8))
+                          Chip(
+                            label: Text(
+                              slot,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        if (slots.length > 8)
+                          Chip(
+                            label: Text(
+                              '+${slots.length - 8} khung giờ khác',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                      ],
                     ),
                   ],
-                  selected: {_kind},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (value) =>
-                      setState(() => _kind = value.first),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _question,
-                  autofocus: true,
-                  maxLength: 500,
-                  minLines: 1,
-                  maxLines: 3,
-                  textInputAction: TextInputAction.newline,
-                  decoration: InputDecoration(
-                    labelText: _kind == 'general'
-                        ? 'Nội dung bình chọn'
-                        : 'Chủ đề cần chọn khung giờ (VD: Họp review tuần)',
-                    border: const OutlineInputBorder(),
-                  ),
-                  validator: _validateQuestion,
-                ),
-                const SizedBox(height: 8),
-                if (_kind == 'general') ...[
-                  for (var i = 0; i < _options.length; i++)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _options[i],
-                              maxLength: 120,
-                              decoration: InputDecoration(
-                                labelText: 'Phương án ${i + 1}',
-                                counterText: '',
-                                border: const OutlineInputBorder(),
-                              ),
-                              validator: _options.length <= 2 && i < 2
-                                  ? (value) => (value ?? '').trim().isEmpty
-                                        ? 'Không được để trống.'
-                                        : null
-                                  : null,
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'Xóa phương án',
-                            onPressed: _options.length <= 2
-                                ? null
-                                : () => _removeOption(i),
-                            icon: const Icon(Icons.remove_circle_outline),
-                          ),
-                        ],
-                      ),
-                    ),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      onPressed: _options.length >= _maxGeneralOptions
-                          ? null
-                          : _addOption,
-                      icon: const Icon(Icons.add),
-                      label: Text(
-                        'Thêm phương án (${_options.length}/'
-                        '$_maxGeneralOptions)',
-                      ),
-                    ),
-                  ),
-                ] else ...[
-                  const Text(
-                    'Mọi người sẽ tích vào khung giờ mình rảnh, '
-                    'giống trang When2meet.',
-                    style: TextStyle(fontSize: 13),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _pickDate(isFrom: true),
-                          icon: const Icon(Icons.date_range, size: 18),
-                          label: Text(_dateLabel(_from)),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _pickDate(isFrom: false),
-                          icon: const Icon(Icons.date_range, size: 18),
-                          label: Text(_dateLabel(_to)),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _pickTime(isStart: true),
-                          icon: const Icon(Icons.schedule, size: 18),
-                          label: Text(_timeLabel(_startMinutes)),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _pickTime(isStart: false),
-                          icon: const Icon(Icons.schedule, size: 18),
-                          label: Text(_timeLabel(_endMinutes)),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Độ dài mỗi ô',
-                    style: Theme.of(context).textTheme.labelMedium,
-                  ),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      for (final length in _slotLengths)
-                        ChoiceChip(
-                          label: Text('$length phút'),
-                          selected: _slotLength == length,
-                          onSelected: (_) =>
-                              setState(() => _slotLength = length),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    slots.isEmpty
-                        ? 'Chưa có khung giờ nào.'
-                        : 'Sẽ có ${slots.length} khung giờ'
-                              '${tooMany ? ' (tối đa $_maxSlots)' : ''}.',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: slots.isEmpty
-                          ? Theme.of(context).colorScheme.error
-                          : Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      for (final slot in slots.take(8))
-                        Chip(
-                          label: Text(
-                            slot,
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      if (slots.length > 8)
-                        Chip(
-                          label: Text(
-                            '+${slots.length - 8} khung giờ khác',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                    ],
-                  ),
                 ],
-              ],
+              ),
             ),
           ),
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(onPressed: _submit, child: const Text('Tạo bình chọn')),
+        ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Hủy'),
-        ),
-        FilledButton(onPressed: _submit, child: const Text('Tạo bình chọn')),
-      ],
     );
   }
 }

@@ -1,3 +1,4 @@
+import '../../core/theme/accent_surface.dart';
 import '../../models/task_model.dart';
 import '../tasks/task_detail_screen.dart';
 
@@ -9,7 +10,6 @@ import '../tasks/task_store.dart';
 import '../projects/create_project_screen.dart';
 import '../projects/join_project_screen.dart';
 import 'project_detail_screen.dart';
-
 
 const Color _borderColor = Color(0xFFE8E6ED);
 const Color _textColor = Color(0xFF252331);
@@ -166,96 +166,85 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
       label:
           '$label, ${tasks.length} công việc, ${(ratio * 100).round()} phần trăm',
       child: Material(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(22),
         clipBehavior: Clip.antiAlias,
-        color: Color.lerp(Colors.white, color, .10),
+        color: Color.lerp(Colors.white, color, .12),
         child: InkWell(
           onTap: () => _showStatTasks(label, tasks),
           child: Container(
-            padding: const EdgeInsets.all(15),
+            padding: const EdgeInsets.fromLTRB(8, 10, 8, 14),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  Colors.white.withValues(alpha: .45),
-                  color.withValues(alpha: .10),
+                  Colors.white.withValues(alpha: .5),
+                  color.withValues(alpha: .1),
                 ],
               ),
             ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Tooltip(
-                      message: 'Tỷ lệ trên tổng $total công việc được giao',
-                      child: SizedBox(
-                        width: 48,
-                        height: 48,
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            SizedBox(
-                              width: 48,
-                              height: 48,
-                              child: CircularProgressIndicator(
-                                value: ratio,
-                                strokeWidth: 4.5,
-                                backgroundColor: color.withValues(alpha: .18),
-                                color: color,
-                                strokeCap: StrokeCap.round,
-                              ),
-                            ),
-                            Text(
-                              '${(ratio * 100).round()}%',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w800,
-                                color: dark,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    Icon(icon, size: 32, color: color.withValues(alpha: .50)),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: dark,
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Icon(
+                    icon,
+                    size: 23,
+                    color: color.withValues(alpha: .75),
                   ),
                 ),
-                const SizedBox(height: 5),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '${tasks.length} công việc',
-                        style: TextStyle(fontSize: 12, color: dark),
+                const SizedBox(height: 8),
+                Center(
+                  child: Tooltip(
+                    message: 'Tỷ lệ trên tổng $total công việc được giao',
+                    child: SizedBox(
+                      width: 52,
+                      height: 52,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          SizedBox.expand(
+                            child: CircularProgressIndicator(
+                              value: ratio,
+                              strokeWidth: 4,
+                              backgroundColor: color.withValues(alpha: .2),
+                              color: color,
+                              strokeCap: StrokeCap.round,
+                            ),
+                          ),
+                          Text(
+                            '${(ratio * 100).round()}%',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: dark,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    Container(
-                      width: 34,
-                      height: 23,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: color,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: const Icon(
-                        Icons.arrow_forward_rounded,
-                        size: 18,
-                        color: Colors.white,
-                      ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: dark,
                     ),
-                  ],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    '${tasks.length} công việc',
+                    style: TextStyle(fontSize: 11, color: dark),
+                  ),
                 ),
               ],
             ),
@@ -304,22 +293,66 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
         teamUpPink,
       ),
     ];
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final columns =
-            constraints.maxWidth < 280 ||
-                MediaQuery.textScalerOf(context).scale(14) > 24
-            ? 1
-            : 2;
-        final width = (constraints.maxWidth - 12 * (columns - 1)) / columns;
-        return Wrap(
-          spacing: 12,
-          runSpacing: 12,
+    final activeProjects = _store.projectsForCurrentUser().where((project) {
+      final status = (project['status'] ?? '').toString().toLowerCase();
+      return !{'completed', 'done', 'hoàn thành'}.contains(status);
+    }).length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
           children: [
-            for (final tile in tiles) SizedBox(width: width, child: tile),
+            const Expanded(
+              child: Text(
+                'Tiến độ công việc',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: _textColor,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                '$activeProjects dự án đang thực hiện',
+                textAlign: TextAlign.right,
+                style: const TextStyle(fontSize: 11, color: teamUpDarkPurple),
+              ),
+            ),
           ],
-        );
-      },
+        ),
+        const SizedBox(height: 14),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final largeText = MediaQuery.textScalerOf(context).scale(14) > 21;
+            final minWidth = largeText ? 110.0 : 74.0;
+            final width = (constraints.maxWidth - 24) / 4;
+            if (width < minWidth) {
+              return SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (var i = 0; i < tiles.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 8),
+                      SizedBox(width: minWidth, child: tiles[i]),
+                    ],
+                  ],
+                ),
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < tiles.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 8),
+                  Expanded(child: tiles[i]),
+                ],
+              ],
+            );
+          },
+        ),
+      ],
     );
   }
 
@@ -410,7 +443,6 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
       _ => const Color(0xFF7663A4),
     };
 
-
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: ChoiceChip(
@@ -423,9 +455,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
         showCheckmark: false,
         selectedColor: accent,
         backgroundColor: Colors.white,
-        side: BorderSide(
-          color: selected ? accent : _borderColor,
-        ),
+        side: BorderSide(color: selected ? accent : _borderColor),
         labelStyle: TextStyle(
           fontSize: 12,
           color: selected ? Colors.white : _secondaryColor,
@@ -635,7 +665,8 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     final hasProjects = _store.projectsForCurrentUser().isNotEmpty;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-      decoration: BoxDecoration(
+      decoration: AccentBoxDecoration(
+        accent: teamUpPurple,
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: _borderColor),
@@ -877,7 +908,8 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                 else if (_store.projectsError != null)
                   Container(
                     padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
+                    decoration: AccentBoxDecoration(
+                      accent: teamUpPurple,
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(24),
                     ),

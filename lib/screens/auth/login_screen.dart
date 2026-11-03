@@ -44,10 +44,10 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               Center(
                 child: Image.asset(
-                  'assets/images/app_logo.png',
+                  'assets/images/app_logo_transparent.png',
                   height: 112,
                   errorBuilder: (_, _, _) => const Icon(
-                    Icons.groups_rounded,
+                    Icons.groups_outlined,
                     color: AppColors.darkPurple,
                     size: 72,
                   ),

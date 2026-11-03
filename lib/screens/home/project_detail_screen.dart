@@ -1,3 +1,5 @@
+import '../../core/theme/accent_surface.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -12,8 +14,8 @@ import 'invite_member_dialog.dart';
 
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
-import '../../core/theme/app_colors.dart';
 
+import '../../core/theme/app_colors.dart';
 
 const Color _background = Color(0xFFF7F7FB);
 const Color _textPrimary = Color(0xFF282638);
@@ -24,12 +26,14 @@ class ProjectDetailScreen extends StatefulWidget {
   final String projectId;
   final String? currentUserId;
   final bool openCreateTask;
+  final String? initialTaskId;
 
   const ProjectDetailScreen({
     super.key,
     required this.projectId,
     this.currentUserId,
     this.openCreateTask = false,
+    this.initialTaskId,
   });
 
   @override
@@ -64,7 +68,11 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(
+      length: 3,
+      vsync: this,
+      initialIndex: widget.initialTaskId == null ? 0 : 1,
+    );
     _listenRealtime();
   }
 
@@ -613,7 +621,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(15),
-        decoration: BoxDecoration(
+        decoration: AccentBoxDecoration(
+          accent: color,
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -814,7 +823,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
         children: [
           Container(
             padding: const EdgeInsets.all(22),
-            decoration: BoxDecoration(
+            decoration: AccentBoxDecoration(
+              accent: teamUpPurple,
               gradient: const LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
@@ -913,7 +923,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
           if (code.isNotEmpty) ...[
             const SizedBox(height: 16),
             Container(
-              decoration: BoxDecoration(
+              decoration: AccentBoxDecoration(
+                accent: teamUpPurple,
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: const Color(0xFFE8E6ED)),
@@ -1003,7 +1014,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
                 : null,
           ),
           Container(
-            decoration: BoxDecoration(
+            decoration: AccentBoxDecoration(
+              accent: teamUpGreen,
               color: Colors.white,
               borderRadius: BorderRadius.circular(24),
               border: Border.all(color: const Color(0xFFE8E6ED)),
@@ -1200,7 +1212,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
           final resource = _resources[index - 1];
           final url = _stringValue(resource, const ['url']);
           return Container(
-            decoration: BoxDecoration(
+            decoration: AccentBoxDecoration(
+              accent: teamUpPurple,
               color: Colors.white,
               borderRadius: BorderRadius.circular(22),
               border: Border.all(color: const Color(0xFFECEBF2)),
@@ -1234,6 +1247,11 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
 
   Widget _buildTasks() {
     final rows = _tasks
+        .where(
+          (task) =>
+              widget.initialTaskId == null ||
+              task['id'] == widget.initialTaskId,
+        )
         .where(
           (task) =>
               (_taskFilter == 'Tất cả' || _status(task) == _taskFilter) &&

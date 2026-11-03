@@ -1,3 +1,5 @@
+import '../core/theme/accent_surface.dart';
+
 import 'package:flutter/material.dart';
 
 import '../core/theme/app_colors.dart';
@@ -17,7 +19,8 @@ class PageIntro extends StatelessWidget {
     width: double.infinity,
     margin: const EdgeInsets.only(bottom: 24),
     padding: const EdgeInsets.all(20),
-    decoration: BoxDecoration(
+    decoration: AccentBoxDecoration(
+      accent: const Color(0xFF8878B7),
       gradient: const LinearGradient(
         colors: [Color(0xFFE8E5FA), Color(0xFFF7EAF4)],
         begin: Alignment.topLeft,
