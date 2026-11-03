@@ -1,3 +1,5 @@
+import '../../widgets/app_widgets.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../controllers/session_controller.dart';
@@ -68,15 +70,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               key: form,
               child: Column(
                 children: [
-                  const Text(
-                    'THÔNG TIN CÁ NHÂN',
-                    style: TextStyle(
-                      color: olive,
-                      fontSize: 10,
-                      letterSpacing: 2,
-                    ),
+                  const PageIntro(
+                    title: 'Hồ sơ của bạn',
+                    description:
+                        'Giúp đồng đội hiểu hơn về bạn và chuyên môn của bạn.',
+                    icon: Icons.badge_outlined,
                   ),
-                  const SizedBox(height: 28),
                   TextFormField(
                     controller: name,
                     decoration: const InputDecoration(labelText: 'Họ tên'),

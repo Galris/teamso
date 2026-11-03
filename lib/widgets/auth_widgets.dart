@@ -25,8 +25,8 @@ class Frame extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Colors.white, AppColors.purpleSoft, AppColors.pinkSoft],
-          stops: [0.0, 0.62, 1.0],
+          colors: [Color(0xFFE8E5FA), Colors.white, AppColors.pinkSoft],
+          stops: [0.0, 0.65, 1.0],
         ),
       ),
       child: Center(

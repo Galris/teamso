@@ -10,6 +10,7 @@ import '../../widgets/auth_widgets.dart';
 import '../auth/change_password_screen.dart';
 import '../tasks/task_store.dart';
 import 'edit_profile_screen.dart';
+import '../home/project_detail_screen.dart';
 
 const _muted = Color(0xFF777482);
 const _border = Color(0xFFE8E6ED);
@@ -20,10 +21,12 @@ class ProfileScreen extends StatefulWidget {
     required this.session,
     this.selectedTab = 0,
     this.unread,
+    this.chatUnread,
   });
   final SessionController session;
   final int selectedTab;
   final ValueListenable<int>? unread;
+  final ValueListenable<int>? chatUnread;
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
@@ -42,6 +45,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
+        scrollable: true,
         title: const Text('Đăng xuất?'),
         content: const Text(
           'Phiên đăng nhập hiện tại sẽ kết thúc. Bạn cần đăng nhập lại để tiếp tục sử dụng. Bạn có muốn tiếp tục?',
@@ -113,6 +117,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           bottomNavigationBar: AppNavigationBar(
             selectedIndex: widget.selectedTab,
             unread: widget.unread,
+            chatUnread: widget.chatUnread,
             onSelected: (index) => Navigator.of(context).pop(index),
           ),
           child: SingleChildScrollView(
@@ -124,6 +129,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _ProfileHeader(
                   user: user,
                   onHome: () => Navigator.of(context).pop(0),
+                  onEdit: _editProfile,
                 ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(22, 28, 22, 0),
@@ -259,6 +265,67 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               subtitle: 'Họ tên, chuyên môn và giới thiệu',
                               onTap: _signingOut ? null : _editProfile,
                             ),
+                            if (widget.session.push.supported) ...[
+                              const Divider(
+                                height: 1,
+                                indent: 18,
+                                endIndent: 18,
+                                color: _border,
+                              ),
+                              ListenableBuilder(
+                                listenable: widget.session.push,
+                                builder: (context, _) {
+                                  final push = widget.session.push;
+                                  return SwitchListTile(
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 18,
+                                      vertical: 7,
+                                    ),
+                                    secondary: const Icon(
+                                      Icons.notifications_active_outlined,
+                                      color: olive,
+                                    ),
+                                    title: const Text(
+                                      'Thông báo đẩy',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      push.error ??
+                                          'Nhận thông báo trên thiết bị này',
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        color: _muted,
+                                      ),
+                                    ),
+                                    value: push.enabled,
+                                    onChanged: push.busy || _signingOut
+                                        ? null
+                                        : (value) async {
+                                            try {
+                                              if (value) {
+                                                await push.enable();
+                                              } else {
+                                                await push.disable();
+                                              }
+                                            } catch (_) {
+                                              if (context.mounted)
+                                                ScaffoldMessenger.of(context)
+                                                    .showSnackBar(
+                                                      const SnackBar(
+                                                        content: Text(
+                                                          'Chưa cập nhật được thông báo. Vui lòng thử lại.',
+                                                        ),
+                                                      ),
+                                                    );
+                                            }
+                                          },
+                                  );
+                                },
+                              ),
+                            ],
                             const Divider(
                               height: 1,
                               indent: 18,
@@ -319,14 +386,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
 }
 
 class _ProfileHeader extends StatelessWidget {
-  const _ProfileHeader({required this.user, required this.onHome});
+  const _ProfileHeader({
+    required this.user,
+    required this.onHome,
+    required this.onEdit,
+  });
   final UserProfile user;
-  final VoidCallback onHome;
+  final VoidCallback onHome, onEdit;
   @override
   Widget build(BuildContext context) => Container(
     decoration: const BoxDecoration(
       gradient: LinearGradient(
-        colors: [Color(0xFFEEEBF8), Color(0xFFF8F1FA)],
+        colors: [Color(0xFF7661AA), Color(0xFFAB91D4), Color(0xFFE8DDF7)],
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
       ),
@@ -341,23 +412,47 @@ class _ProfileHeader extends StatelessWidget {
             IconButton(
               tooltip: 'Về trang chủ',
               onPressed: onHome,
-              icon: const Icon(Icons.arrow_back_rounded),
+              icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
             ),
             const Expanded(
               child: Text(
-                'Hồ sơ cá nhân',
+                'Tài khoản',
                 style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w600,
-                  color: ink,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
                 ),
               ),
             ),
             const SizedBox(width: 12),
-            const Icon(Icons.groups_rounded, color: olive, size: 23),
+            IconButton(
+              tooltip: 'Chỉnh sửa hồ sơ',
+              onPressed: onEdit,
+              icon: const Icon(Icons.edit_outlined, color: Colors.white),
+            ),
           ],
         ),
-        const SizedBox(height: 28),
+        const SizedBox(height: 20),
+        GestureDetector(
+          onTap: onEdit,
+          child: Container(
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withValues(alpha: .28),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: .65),
+                width: 2,
+              ),
+            ),
+            child: Avatar(
+              radius: 52,
+              name: user.name.isEmpty ? user.username : user.name,
+              url: user.avatarUrl,
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
         Text(
           user.name.isEmpty ? user.username : user.name,
           textAlign: TextAlign.center,
@@ -365,7 +460,7 @@ class _ProfileHeader extends StatelessWidget {
             fontSize: 27,
             height: 1.2,
             fontWeight: FontWeight.w800,
-            color: ink,
+            color: Colors.white,
           ),
         ),
         const SizedBox(height: 12),
@@ -378,7 +473,7 @@ class _ProfileHeader extends StatelessWidget {
         const Text(
           'Mỗi đóng góp nhỏ, cùng tạo điều lớn.',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 12, color: _muted, height: 1.5),
+          style: TextStyle(fontSize: 14, color: Colors.white, height: 1.5),
         ),
       ],
     ),
@@ -402,72 +497,82 @@ class _ProjectCard extends StatelessWidget {
         ? 'Đang thực hiện'
         : project.status;
     return _Surface(
-      child: Padding(
-        padding: const EdgeInsets.all(17),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: completed
-                    ? const Color(0xFFECE7F3)
-                    : const Color(0xFFEAE7F4),
-                borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (_) => ProjectDetailScreen(projectId: project.id),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(17),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: completed
+                      ? const Color(0xFFECE7F3)
+                      : const Color(0xFFEAE7F4),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.folder_outlined,
+                  color: completed ? const Color(0xFF807098) : olive,
+                  size: 21,
+                ),
               ),
-              child: Icon(
-                Icons.folder_outlined,
-                color: completed ? const Color(0xFF807098) : olive,
-                size: 21,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    project.name,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: ink,
-                      height: 1.45,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 9),
-                  Wrap(
-                    spacing: 7,
-                    runSpacing: 7,
-                    children: [
-                      _Tag(
-                        project.role,
-                        color: const Color(0xFFEEE9F7),
-                        textColor: const Color(0xFF78638F),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      project.name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: ink,
+                        height: 1.45,
+                        fontSize: 14,
                       ),
-                      _Tag(
-                        label,
-                        color: completed
-                            ? const Color(0xFFECF0E7)
-                            : const Color(0xFFFFF0D5),
-                        textColor: completed ? olive : const Color(0xFF9A7840),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    project.specificTask ?? 'Chưa có mô tả nhiệm vụ cụ thể.',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: _muted,
-                      height: 1.6,
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 9),
+                    Wrap(
+                      spacing: 7,
+                      runSpacing: 7,
+                      children: [
+                        _Tag(
+                          project.role,
+                          color: const Color(0xFFEEE9F7),
+                          textColor: const Color(0xFF78638F),
+                        ),
+                        _Tag(
+                          label,
+                          color: completed
+                              ? const Color(0xFFECF0E7)
+                              : const Color(0xFFFFF0D5),
+                          textColor: completed
+                              ? olive
+                              : const Color(0xFF9A7840),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      project.specificTask ?? 'Chưa có mô tả nhiệm vụ cụ thể.',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: _muted,
+                        height: 1.6,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -505,7 +610,7 @@ class _Surface extends StatelessWidget {
   Widget build(BuildContext context) => Material(
     color: color,
     shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(24),
       side: const BorderSide(color: _border),
     ),
     clipBehavior: Clip.antiAlias,
@@ -521,13 +626,36 @@ class _SectionTitle extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text(
-        title,
-        style: const TextStyle(
-          fontSize: 17,
-          fontWeight: FontWeight.w700,
-          color: ink,
-        ),
+      Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE8E1F5),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(
+              switch (title) {
+                'Dự án tham gia' => Icons.layers_outlined,
+                'Liên hệ & học tập' => Icons.person_outline_rounded,
+                _ => Icons.settings_outlined,
+              },
+              color: const Color(0xFF62508B),
+              size: 26,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(
+                fontSize: 21,
+                fontWeight: FontWeight.w700,
+                color: ink,
+              ),
+            ),
+          ),
+        ],
       ),
       if (caption != null)
         Padding(
@@ -561,11 +689,11 @@ class _ContactRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: const TextStyle(fontSize: 10, color: _muted)),
+              Text(label, style: const TextStyle(fontSize: 12, color: _muted)),
               const SizedBox(height: 4),
               SelectableText(
                 value,
-                style: const TextStyle(fontSize: 13, color: ink, height: 1.5),
+                style: const TextStyle(fontSize: 15, color: ink, height: 1.5),
               ),
             ],
           ),
@@ -598,8 +726,8 @@ class _ActionTile extends StatelessWidget {
     title: Text(
       title,
       style: TextStyle(
-        fontSize: 13,
-        fontWeight: FontWeight.w600,
+        fontSize: 16,
+        fontWeight: FontWeight.w700,
         color: destructive ? const Color(0xFFB76E64) : ink,
       ),
     ),
@@ -607,7 +735,7 @@ class _ActionTile extends StatelessWidget {
       padding: const EdgeInsets.only(top: 5),
       child: Text(
         subtitle,
-        style: const TextStyle(fontSize: 11, height: 1.4, color: _muted),
+        style: const TextStyle(fontSize: 13, height: 1.4, color: _muted),
       ),
     ),
     trailing: Icon(

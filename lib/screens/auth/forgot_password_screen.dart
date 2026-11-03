@@ -109,17 +109,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       key: const ValueKey('email'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Icon(
-          Icons.mark_email_unread_outlined,
-          size: 56,
-          color: AppColors.purple,
+        const PageIntro(
+          title: 'Lấy lại quyền truy cập',
+          description: 'Nhập email đã đăng ký. Liên kết đặt lại mật khẩu sẽ được gửi đến hộp thư của bạn.',
+          icon: Icons.mark_email_unread_outlined,
         ),
-        const SizedBox(height: 16),
-        const Text(
-          'Nhập email đã đăng ký. Firebase sẽ gửi liên kết để bạn đặt lại mật khẩu.',
-          style: TextStyle(color: AppColors.textSecondary, height: 1.5),
-        ),
-        const SizedBox(height: 24),
         TextFormField(
           controller: email,
           enabled: !busy,

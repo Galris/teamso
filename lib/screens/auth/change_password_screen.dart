@@ -1,3 +1,5 @@
+import '../../widgets/app_widgets.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../controllers/session_controller.dart';
@@ -78,6 +80,11 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            const PageIntro(
+              title: 'Bảo vệ tài khoản',
+              description: 'Chọn mật khẩu mới để giữ an toàn cho không gian làm việc của bạn.',
+              icon: Icons.lock_reset_rounded,
+            ),
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(

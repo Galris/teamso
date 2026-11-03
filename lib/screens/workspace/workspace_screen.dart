@@ -426,6 +426,32 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   // QUICK VOTE - CHỌN NHIỀU PHƯƠNG ÁN VÀ ĐỔI PHIẾU
   // =========================================================
 
+  Future<void> _addVoteOption(Map<String, dynamic> vote) async {
+    final projectId = _projectId;
+    if (_busy || projectId == null || widget.session == null) return;
+    final options = (vote['options'] as List? ?? const [])
+        .map((e) => e.toString())
+        .toList();
+    final option = await _showInputDialog(
+      title: 'Thêm đáp án',
+      label: 'Đáp án mới',
+      maxLength: 120,
+      validate: (text) =>
+          options.any((e) => e.toLowerCase() == text.toLowerCase())
+          ? 'Đáp án này đã tồn tại.'
+          : null,
+    );
+    if (!mounted || option == null) return;
+    await _guard(
+      () => widget.session!.workspace.addVoteOption(
+        projectId,
+        vote['id'].toString(),
+        option,
+      ),
+      'Đã thêm đáp án. Các phiếu trước đó được giữ nguyên.',
+    );
+  }
+
   Future<void> _editVote(Map<String, dynamic> vote) async {
     if (_busy || _projectId == null || widget.session == null) {
       return;
@@ -435,6 +461,15 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     final voteId = vote['id'].toString();
 
     final result = await showVoteBallotDialog(context, vote: vote);
+
+    if (!mounted || result == null) return;
+
+    await _guard(
+      () => widget.session!.workspace.voteMultiple(projectId, voteId, result),
+      result.isEmpty
+          ? 'Đã bỏ toàn bộ lựa chọn.'
+          : 'Đã cập nhật lựa chọn bình chọn.',
+    );
 
     if (!mounted || result == null) return;
 
@@ -460,6 +495,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
+        scrollable: true,
         title: const Text('Xóa mục này?'),
         content: Text(
           collection == 'votes'
@@ -492,10 +528,17 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   Widget _buildSection({
     required String title,
     required IconData icon,
+    required Color color,
     required Widget child,
     VoidCallback? onAdd,
   }) {
+    final accent = switch (title) {
+      'Bình chọn nhóm' => const Color(0xFFA34076),
+      'Lịch họp nhóm' => const Color(0xFF3968A8),
+      _ => const Color(0xFF6B509C),
+    };
     return Card(
+      color: color,
       margin: const EdgeInsets.only(bottom: 16),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -505,30 +548,51 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
             Row(
               children: [
                 Container(
-                  width: 36,
-                  height: 36,
+                  width: 48,
+                  height: 48,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF0EEF7),
-                    borderRadius: BorderRadius.circular(10),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [accent.withValues(alpha: .78), accent],
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: accent.withValues(alpha: .20),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
                   ),
-                  child: Icon(icon, size: 20, color: const Color(0xFF4D4379)),
+                  child: Icon(icon, size: 28, color: Colors.white),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     title,
-                    style: Theme.of(context).textTheme.titleMedium,
+                    style: TextStyle(
+                      fontSize: 22,
+                      height: 1.15,
+                      letterSpacing: -.4,
+                      fontWeight: FontWeight.w900,
+                      color: accent,
+                    ),
                   ),
                 ),
                 if (onAdd != null)
-                  IconButton(
+                  IconButton.filledTonal(
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.white.withValues(alpha: .85),
+                      foregroundColor: accent,
+                    ),
                     tooltip: 'Thêm mới',
                     onPressed: _busy ? null : onAdd,
-                    icon: const Icon(Icons.add),
+                    icon: const Icon(Icons.add_rounded, size: 26),
                   ),
               ],
             ),
-            const Divider(),
+            const SizedBox(height: 16),
             child,
           ],
         ),
@@ -543,6 +607,29 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   bool _canDelete(Map<String, dynamic> row) =>
       row['createdBy'] == widget.session?.auth.currentUserId ||
       TaskStore.instance.roleInProject(_projectId ?? '') == 'Leader';
+
+  Widget _deleteButton(
+    Map<String, dynamic> row,
+    String collection,
+    String label,
+  ) {
+    final allowed = _canDelete(row);
+    return IconButton.filledTonal(
+      tooltip: allowed
+          ? 'Xóa $label'
+          : 'Chỉ người tạo hoặc trưởng nhóm được xóa $label',
+      style: IconButton.styleFrom(
+        backgroundColor: const Color(0xFFFFE7EC),
+        foregroundColor: const Color(0xFFB03D59),
+        disabledBackgroundColor: const Color(0xFFEDE7EC),
+        disabledForegroundColor: const Color(0xFFAA9DA6),
+      ),
+      icon: const Icon(Icons.delete_outline_rounded, size: 23),
+      onPressed: !allowed || _busy
+          ? null
+          : () => _removeRow(collection, row['id'].toString()),
+    );
+  }
 
   Future<void> _openDocument(String value) async {
     try {
@@ -593,15 +680,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
             onTap: (doc['url'] ?? '').toString().isEmpty
                 ? null
                 : () => _openDocument(doc['url'].toString()),
-            trailing: !_canDelete(doc)
-                ? null
-                : IconButton(
-                    tooltip: 'Xóa tài liệu',
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: _busy
-                        ? null
-                        : () => _removeRow('documents', doc['id'].toString()),
-                  ),
+            trailing: _deleteButton(doc, 'documents', 'tài liệu'),
           ),
       ],
     );
@@ -623,16 +702,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.event_outlined),
             title: Text((meeting['label'] ?? 'Cuộc họp').toString()),
-            trailing: !_canDelete(meeting)
-                ? null
-                : IconButton(
-                    tooltip: 'Xóa lịch họp',
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: _busy
-                        ? null
-                        : () =>
-                              _removeRow('meetings', meeting['id'].toString()),
-                  ),
+            trailing: _deleteButton(meeting, 'meetings', 'lịch họp'),
           ),
       ],
     );
@@ -644,18 +714,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
 
   Widget _buildVotes() {
     if (_votes.isEmpty) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Chưa có bình chọn nào.'),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: _busy ? null : _createVote,
-            icon: const Icon(Icons.add_chart),
-            label: const Text('Tạo bình chọn mới'),
-          ),
-        ],
-      );
+      return const Text('Chưa có bình chọn nào.');
     }
 
     return Column(
@@ -665,32 +724,60 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  (vote['question'] ?? 'Bình chọn').toString(),
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .8),
+                    borderRadius: BorderRadius.circular(14),
+                    border: const Border(
+                      left: BorderSide(color: Color(0xFFA34076), width: 4),
+                    ),
+                  ),
+                  child: Text(
+                    (vote['question'] ?? 'Bình chọn').toString(),
+                    style: const TextStyle(
+                      fontSize: 19,
+                      height: 1.3,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF753054),
+                    ),
+                  ),
                 ),
               ),
-              if (_canDelete(vote))
-                IconButton(
-                  tooltip: 'Xóa bình chọn',
-                  icon: const Icon(Icons.delete_outline, size: 20),
-                  onPressed: _busy
-                      ? null
-                      : () => _removeRow('votes', vote['id'].toString()),
-                ),
+              const SizedBox(width: 8),
+              _deleteButton(vote, 'votes', 'bình chọn'),
             ],
           ),
           const SizedBox(height: 4),
           _voteOptions(vote),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFA34076),
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: const Color(0xFFE5CAD9),
+                  disabledForegroundColor: const Color(0xFF947286),
+                ),
+                onPressed:
+                    _busy || (vote['options'] as List? ?? const []).length >= 20
+                    ? null
+                    : () => _addVoteOption(vote),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Thêm đáp án'),
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
           const Divider(),
           const SizedBox(height: 12),
         ],
-        OutlinedButton.icon(
-          onPressed: _busy ? null : _createVote,
-          icon: const Icon(Icons.add_chart),
-          label: const Text('Tạo bình chọn mới'),
-        ),
       ],
     );
   }
@@ -759,19 +846,50 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (var i = 0; i < options.length; i++)
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(
-              myVotes.contains(i)
-                  ? Icons.check_box
-                  : Icons.check_box_outline_blank,
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            child: Material(
               color: myVotes.contains(i)
-                  ? Theme.of(context).colorScheme.primary
-                  : null,
+                  ? const Color(0xFFF0E9FC)
+                  : const Color(0xFFFAF9FD),
+              borderRadius: BorderRadius.circular(18),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(18),
+                onTap: _busy ? null : () => _editVote(vote),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      Icon(
+                        myVotes.contains(i)
+                            ? Icons.check_box_rounded
+                            : Icons.check_box_outline_blank_rounded,
+                        color: const Color(0xFF7666A5),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              options[i].toString(),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${i < counts.length ? counts[i] : 0} phiếu',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
-            title: Text(options[i].toString()),
-            subtitle: Text('${i < counts.length ? counts[i] : 0} phiếu'),
-            onTap: _busy ? null : () => _editVote(vote),
           ),
         const SizedBox(height: 8),
         Text('Số người đã tham gia: $total'),
@@ -788,28 +906,68 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     }
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 20),
       child: DropdownButtonFormField<String>(
         key: ValueKey(_projectId),
         initialValue:
             projects.any((project) => project['id'].toString() == _projectId)
             ? _projectId
             : projects.first['id'].toString(),
-        decoration: const InputDecoration(
-          labelText: 'Dự án',
-          border: OutlineInputBorder(),
+        isExpanded: true,
+        style: const TextStyle(
+          fontSize: 17,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF332A52),
+        ),
+        icon: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+          decoration: BoxDecoration(
+            color: const Color(0xFFE8E0F7),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Icon(
+            Icons.expand_more_rounded,
+            color: Color(0xFF4D4379),
+            size: 26,
+          ),
+        ),
+        decoration: InputDecoration(
+          filled: true,
+          fillColor: const Color(0xFFF5F1FB),
+          prefixIcon: const Icon(
+            Icons.folder_rounded,
+            color: Color(0xFF867CB3),
+          ),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 14,
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: const BorderSide(color: Color(0xFF867CB3), width: 2),
+          ),
         ),
         items: [
           for (final project in projects)
             DropdownMenuItem<String>(
               value: project['id'].toString(),
-              child: Text((project['name'] ?? 'Dự án').toString()),
+              child: Text(
+                (project['name'] ?? 'Dự án').toString(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
         ],
         onChanged: (id) {
-          if (id != null) {
-            _pickProject(id);
-          }
+          if (id != null) _pickProject(id);
         },
       ),
     );
@@ -835,58 +993,62 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
 
         final hasProject = _projectId != null;
 
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Text(
-              'TeamUp Workspace',
-              style: Theme.of(context).textTheme.headlineSmall,
+        return DecoratedBox(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              stops: [0, .72, 1],
+              colors: [Colors.white, Colors.white, Color(0xFFFFF1F7)],
             ),
-            const SizedBox(height: 8),
-            const Text(
-              'Không gian tổng hợp tài liệu, '
-              'bình chọn và lịch họp của nhóm.',
-            ),
-            const SizedBox(height: 20),
-            _projectHeader(projects),
-            if (!hasProject)
-              const EmptyState(
-                icon: Icons.folder_open_rounded,
-                title: 'Chưa có dự án',
-                message:
-                    'Tạo hoặc tham gia một dự án '
-                    'để dùng Workspace.',
-              )
-            else if (_loading)
-              const SkeletonList(count: 3, itemHeight: 120)
-            else if (_error != null)
-              EmptyState(
-                icon: Icons.cloud_off_rounded,
-                title: 'Không tải được dữ liệu',
-                message: _error,
-                actionLabel: 'Thử lại',
-                onAction: _listen,
-              )
-            else ...[
-              _buildSection(
-                title: 'Tài liệu nhóm',
-                icon: Icons.folder_outlined,
-                onAdd: _addDocument,
-                child: _buildDocuments(),
-              ),
-              _buildSection(
-                title: 'Quick Vote',
-                icon: Icons.how_to_vote_outlined,
-                child: _buildVotes(),
-              ),
-              _buildSection(
-                title: 'Lịch họp nhóm',
-                icon: Icons.groups_outlined,
-                onAdd: _addMeeting,
-                child: _buildMeetings(),
-              ),
+          ),
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              _projectHeader(projects),
+              if (!hasProject)
+                const EmptyState(
+                  icon: Icons.folder_open_rounded,
+                  title: 'Chưa có dự án',
+                  message:
+                      'Tạo hoặc tham gia một dự án '
+                      'để dùng Workspace.',
+                )
+              else if (_loading)
+                const SkeletonList(count: 3, itemHeight: 120)
+              else if (_error != null)
+                EmptyState(
+                  icon: Icons.cloud_off_rounded,
+                  title: 'Không tải được dữ liệu',
+                  message: _error,
+                  actionLabel: 'Thử lại',
+                  onAction: _listen,
+                )
+              else ...[
+                _buildSection(
+                  title: 'Tài liệu nhóm',
+                  color: const Color(0xFFECE4FA),
+                  icon: Icons.folder_outlined,
+                  onAdd: _addDocument,
+                  child: _buildDocuments(),
+                ),
+                _buildSection(
+                  title: 'Bình chọn nhóm',
+                  onAdd: _createVote,
+                  color: const Color(0xFFFBE7F0),
+                  icon: Icons.how_to_vote_outlined,
+                  child: _buildVotes(),
+                ),
+                _buildSection(
+                  title: 'Lịch họp nhóm',
+                  color: const Color(0xFFE6EEFF),
+                  icon: Icons.groups_outlined,
+                  onAdd: _addMeeting,
+                  child: _buildMeetings(),
+                ),
+              ],
             ],
-          ],
+          ),
         );
       },
     );
@@ -927,6 +1089,7 @@ class _WorkspaceInputDialogState extends State<_WorkspaceInputDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
+    scrollable: true,
     title: Text(widget.title),
     content: Form(
       key: _form,
@@ -934,10 +1097,7 @@ class _WorkspaceInputDialogState extends State<_WorkspaceInputDialog> {
         controller: _controller,
         autofocus: true,
         maxLength: widget.maxLength,
-        decoration: InputDecoration(
-          labelText: widget.label,
-          border: const OutlineInputBorder(),
-        ),
+        decoration: InputDecoration(labelText: widget.label),
         validator: (value) {
           final text = (value ?? '').trim();
           if (!widget.optional && text.isEmpty) {

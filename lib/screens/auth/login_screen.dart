@@ -45,7 +45,7 @@ class _LoginScreenState extends State<LoginScreen> {
               Center(
                 child: Image.asset(
                   'assets/images/app_logo.png',
-                  height: 150,
+                  height: 112,
                   errorBuilder: (_, _, _) => const Icon(
                     Icons.groups_rounded,
                     color: AppColors.darkPurple,
@@ -53,7 +53,18 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
+              const Center(
+                child: Text(
+                  'TeamUp',
+                  style: TextStyle(
+                    fontSize: 34,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -1,
+                    color: AppColors.darkPurple,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
               const Text(
                 'Chào mừng trở lại 👋',
                 style: TextStyle(

@@ -130,7 +130,15 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
       : _statusColor(task['status']?.toString() ?? 'Cần làm');
 
   void _shiftMonth(int delta) {
-    setState(() => _month = DateTime(_month.year, _month.month + delta));
+    setState(() {
+      _month = DateTime(_month.year, _month.month + delta);
+      final lastDay = DateTime(_month.year, _month.month + 1, 0).day;
+      _selected = DateTime(
+        _month.year,
+        _month.month,
+        _selected.day.clamp(1, lastDay),
+      );
+    });
   }
 
   void _goToday() {
@@ -165,18 +173,39 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
         return da.compareTo(db);
       });
     final noDeadline = _tasks.where((t) => _dueOf(t) == null).length;
+    final monthTasks = _tasks.where((t) {
+      final due = _dueOf(t);
+      return due != null &&
+          due.year == _month.year &&
+          due.month == _month.month;
+    }).toList();
+    final overdueCount = monthTasks.where(_isOverdue).length;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
       children: [
         _buildScopeChips(),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
         Container(
-          padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+          padding: const EdgeInsets.fromLTRB(10, 12, 10, 16),
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: _border),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFFE6D9FA), Color(0xFFFCECF6), Color(0xFFF2E5F8)],
+            ),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: .9),
+              width: 2,
+            ),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x0A4D4379),
+                blurRadius: 20,
+                offset: Offset(0, 8),
+              ),
+            ],
           ),
           child: Column(
             children: [
@@ -185,10 +214,39 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
               _buildWeekdayRow(),
               const SizedBox(height: 4),
               _buildGrid(byDay),
-              const SizedBox(height: 10),
-              _buildLegend(),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: .65),
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: _buildLegend(),
+              ),
             ],
           ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: _summary(
+                'Trong tháng',
+                monthTasks.length,
+                Icons.event_note_rounded,
+                _purple,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _summary(
+                'Quá hạn',
+                overdueCount,
+                Icons.event_busy_outlined,
+                _red,
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 16),
         _buildSelectedHeader(selectedTasks.length),
@@ -212,72 +270,139 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
     );
   }
 
-  Widget _buildScopeChips() {
-    return Wrap(
-      spacing: 8,
-      children: [
-        ChoiceChip(
-          label: const Text('Của tôi'),
-          selected: !_team,
-          onSelected: (_) => setState(() => _team = false),
+  Widget _summary(String label, int count, IconData icon, Color color) =>
+      Container(
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: .85),
+          borderRadius: BorderRadius.circular(21),
         ),
-        ChoiceChip(
-          label: const Text('Cả nhóm'),
-          selected: _team,
-          onSelected: (_) => setState(() => _team = true),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMonthHeader() {
-    return Row(
-      children: [
-        IconButton(
-          tooltip: 'Tháng trước',
-          onPressed: () => _shiftMonth(-1),
-          icon: const Icon(Icons.chevron_left_rounded),
-        ),
-        Expanded(
-          child: Text(
-            'Tháng ${_month.month}, ${_month.year}',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: _textPrimary,
+        child: Row(
+          children: [
+            Icon(icon, size: 21, color: color),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$count',
+                    style: TextStyle(
+                      fontSize: 23,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    label,
+                    style: const TextStyle(fontSize: 12, color: _textSecondary),
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
         ),
-        TextButton(onPressed: _goToday, child: const Text('Hôm nay')),
-        IconButton(
-          tooltip: 'Tháng sau',
-          onPressed: () => _shiftMonth(1),
-          icon: const Icon(Icons.chevron_right_rounded),
-        ),
-      ],
-    );
-  }
+      );
 
-  Widget _buildWeekdayRow() {
-    return Row(
+  Widget _buildScopeChips() => SegmentedButton<bool>(
+    showSelectedIcon: false,
+    segments: const [
+      ButtonSegment(
+        value: false,
+        icon: Icon(Icons.person_outline_rounded, size: 18),
+        label: Text('Của tôi'),
+      ),
+      ButtonSegment(
+        value: true,
+        icon: Icon(Icons.groups_outlined, size: 18),
+        label: Text('Cả nhóm'),
+      ),
+    ],
+    selected: {_team},
+    onSelectionChanged: (value) => setState(() => _team = value.first),
+    style: SegmentedButton.styleFrom(
+      selectedBackgroundColor: _darkPurple,
+      selectedForegroundColor: Colors.white,
+      backgroundColor: Colors.white.withValues(alpha: .75),
+      foregroundColor: _darkPurple,
+      side: BorderSide.none,
+      padding: const EdgeInsets.symmetric(vertical: 12),
+    ),
+  );
+
+  Widget _buildMonthHeader() => Padding(
+    padding: const EdgeInsets.fromLTRB(4, 0, 4, 14),
+    child: Column(
       children: [
-        for (final label in _weekdayShort)
-          Expanded(
-            child: Center(
+        Row(
+          children: [
+            const Icon(Icons.date_range_rounded, color: _purple, size: 22),
+            const SizedBox(width: 9),
+            Expanded(
               child: Text(
-                label,
+                'Tháng ${_month.month}, ${_month.year}',
                 style: const TextStyle(
-                  fontSize: 12,
+                  fontSize: 20,
                   fontWeight: FontWeight.w700,
-                  color: _textSecondary,
+                  color: _darkPurple,
                 ),
               ),
             ),
-          ),
+            TextButton(
+              style: TextButton.styleFrom(
+                backgroundColor: Colors.white.withValues(alpha: .65),
+                foregroundColor: _darkPurple,
+              ),
+              onPressed: _goToday,
+              child: const Text('Hôm nay'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            IconButton.filledTonal(
+              tooltip: 'Tháng trước',
+              onPressed: () => _shiftMonth(-1),
+              icon: const Icon(Icons.chevron_left_rounded),
+            ),
+            IconButton.filledTonal(
+              tooltip: 'Tháng sau',
+              onPressed: () => _shiftMonth(1),
+              icon: const Icon(Icons.chevron_right_rounded),
+            ),
+          ],
+        ),
       ],
-    );
-  }
+    ),
+  );
+
+  Widget _buildWeekdayRow() => Row(
+    children: [
+      for (final label in _weekdayShort)
+        Expanded(
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 1),
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFFDCCCF2).withValues(alpha: .8),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: _darkPurple,
+              ),
+            ),
+          ),
+        ),
+    ],
+  );
 
   Widget _buildGrid(Map<DateTime, List<Map<String, dynamic>>> byDay) {
     final first = DateTime(_month.year, _month.month);
@@ -327,8 +452,14 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
         margin: const EdgeInsets.all(2),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
-          color: isSelected ? _purple.withValues(alpha: 0.14) : null,
-          border: isSelected ? Border.all(color: _purple, width: 1.4) : null,
+          color: isSelected
+              ? _darkPurple
+              : isToday
+              ? _purple.withValues(alpha: .08)
+              : null,
+          border: isToday && !isSelected
+              ? Border.all(color: _purple, width: 1.4)
+              : null,
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -337,10 +468,7 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
               width: 26,
               height: 26,
               alignment: Alignment.center,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isToday ? _darkPurple : null,
-              ),
+              decoration: BoxDecoration(shape: BoxShape.circle, color: null),
               child: Text(
                 '${day.day}',
                 style: TextStyle(
@@ -348,7 +476,7 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
                   fontWeight: isToday || isSelected
                       ? FontWeight.w800
                       : FontWeight.w500,
-                  color: isToday
+                  color: isSelected
                       ? Colors.white
                       : inMonth
                       ? _textPrimary
@@ -368,7 +496,11 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
                       height: 6,
                       margin: const EdgeInsets.symmetric(horizontal: 1.5),
                       decoration: BoxDecoration(
-                        color: inMonth ? color : color.withValues(alpha: 0.4),
+                        color: isSelected
+                            ? Colors.white.withValues(alpha: .85)
+                            : inMonth
+                            ? color
+                            : color.withValues(alpha: 0.4),
                         shape: BoxShape.circle,
                       ),
                     ),
@@ -428,6 +560,8 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
     final suffix = _selected == today ? ' · Hôm nay' : '';
     return Row(
       children: [
+        const Icon(Icons.event_note_rounded, color: _purple, size: 21),
+        const SizedBox(width: 9),
         Expanded(
           child: Text(
             '$weekday, ${_fmtDate(_selected)}$suffix',
@@ -452,15 +586,15 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
       padding: const EdgeInsets.symmetric(vertical: 28),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
         border: Border.all(color: _border),
       ),
       child: const Column(
         children: [
-          Icon(Icons.event_available_rounded, size: 36, color: Color(0xFFD0CEDC)),
+          Icon(Icons.event_available_rounded, size: 36, color: _purple),
           SizedBox(height: 8),
           Text(
-            'Không có deadline trong ngày này',
+            'Ngày này chưa có deadline',
             style: TextStyle(color: _textSecondary),
           ),
         ],
@@ -477,13 +611,13 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
     final overdue = _isOverdue(task);
 
     return InkWell(
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(24),
       onTap: () => _showTaskDetail(task),
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(24),
           border: Border.all(color: _border),
         ),
         child: Row(
@@ -517,10 +651,7 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
                     '${widget.store.memberName(task['assigneeId']?.toString() ?? '')}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: _textSecondary,
-                    ),
+                    style: const TextStyle(fontSize: 12, color: _textSecondary),
                   ),
                 ],
               ),
@@ -685,7 +816,12 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
                   valueColor: const Color(0xFFB94B83),
                 ),
               if (link.isNotEmpty)
-                row(Icons.link_rounded, 'Kết quả', link, valueColor: _darkPurple),
+                row(
+                  Icons.link_rounded,
+                  'Kết quả',
+                  link,
+                  valueColor: _darkPurple,
+                ),
               const SizedBox(height: 6),
               Row(
                 children: [

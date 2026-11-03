@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 
 import 'firebase_options.dart';
 
@@ -11,10 +13,19 @@ import 'screens/main_screen.dart';
 import 'screens/splash_screen.dart';
 import 'widgets/auth_widgets.dart';
 
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  // The OS displays notification payloads while the app is in the background.
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _installSoftErrorWidget();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  }
   runApp(const TeamUpApp());
 }
 

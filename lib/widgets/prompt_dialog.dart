@@ -90,6 +90,7 @@ class _TextPromptDialogState extends State<_TextPromptDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      scrollable: true,
       title: Text(widget.title),
       content: SizedBox(
         width: 440,
@@ -111,7 +112,6 @@ class _TextPromptDialogState extends State<_TextPromptDialog> {
                   decoration: InputDecoration(
                     labelText: widget.label,
                     hintText: widget.hint,
-                    border: const OutlineInputBorder(),
                   ),
                   validator: (value) =>
                       widget.validator?.call((value ?? '').trim()),

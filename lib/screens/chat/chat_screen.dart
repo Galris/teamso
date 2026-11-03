@@ -1,4 +1,7 @@
 import 'project_chat_list.dart';
+import 'direct_chat_room.dart';
+import '../projects/create_project_screen.dart';
+import '../../widgets/prompt_dialog.dart';
 
 import 'dart:async';
 
@@ -7,6 +10,7 @@ import 'package:flutter/material.dart';
 
 import '../../controllers/session_controller.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/chat_palette.dart';
 import '../../services/service_errors.dart';
 import '../../widgets/app_widgets.dart';
 import '../../widgets/auth_widgets.dart';
@@ -14,9 +18,17 @@ import '../tasks/task_store.dart';
 
 /// Chat nhóm theo từng dự án, đọc/ghi realtime qua `projects/{id}/messages`.
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, this.session, this.userName = ''});
+  const ChatScreen({
+    super.key,
+    this.session,
+    this.userName = '',
+    this.active = true,
+    this.unread,
+  });
   final SessionController? session;
   final String userName;
+  final bool active;
+  final ValueNotifier<int>? unread;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -27,13 +39,17 @@ enum _MessageType { me, member, bot }
 class _ChatMessage {
   const _ChatMessage({
     required this.sender,
+    required this.senderId,
     required this.content,
     required this.time,
     required this.type,
+    required this.date,
   });
   final String sender;
+  final String senderId;
   final String content;
   final String time;
+  final DateTime? date;
   final _MessageType type;
 
   static _ChatMessage fromDoc(Map<String, dynamic> doc, String myUid) {
@@ -47,9 +63,11 @@ class _ChatMessage {
               : _MessageType.member);
     return _ChatMessage(
       sender: (doc['senderName'] ?? '').toString(),
+      senderId: senderId,
       content: (doc['content'] ?? '').toString(),
       time: created == null ? '' : _hhmm(created.toLocal()),
       type: type,
+      date: created?.toLocal(),
     );
   }
 
@@ -63,11 +81,21 @@ class _ChatMessage {
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
+  StreamSubscription<Map<String, int>>? _unreadSub;
+  Map<String, int> _unreadCounts = {};
+  String? _latestMessageId;
+  bool _markingRead = false;
+  bool _resumed = true;
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _hasText = false;
   bool _sending = false;
+  bool _startingChat = false, _loadingDirect = false;
+  Timer? _directTimer;
+  List<Map<String, dynamic>> _directRooms = [];
+  String? _directError;
+  final Map<String, int> _senderColors = {};
 
   String? _projectId;
   int _chatGeneration = 0;
@@ -86,6 +114,20 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _resumed =
+        WidgetsBinding.instance.lifecycleState == null ||
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    _unreadSub = widget.session?.chat.watchUnread().listen((counts) {
+      if (!mounted) return;
+      setState(() => _unreadCounts = counts);
+      _updateBadge();
+      _markVisibleRead();
+    }, onError: (Object _) {});
+    _loadDirect();
+    _directTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (widget.active && _resumed) _loadDirect();
+    });
     TaskStore.instance.addListener(_syncRooms);
     _syncRooms();
     _messageController.addListener(() {
@@ -96,6 +138,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _unreadSub?.cancel();
+    _directTimer?.cancel();
     TaskStore.instance.removeListener(_syncRooms);
     _chatGeneration++;
     _chatSub?.cancel();
@@ -105,6 +150,193 @@ class _ChatScreenState extends State<ChatScreen> {
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active) _markVisibleRead();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _resumed = state == AppLifecycleState.resumed;
+    if (_resumed) _markVisibleRead();
+  }
+
+  Future<void> _loadDirect() async {
+    if (_loadingDirect || widget.session == null || !mounted) return;
+    _loadingDirect = true;
+    try {
+      final rooms = await widget.session!.chat.directRooms();
+      if (mounted)
+        setState(() {
+          _directRooms = rooms;
+          _directError = null;
+        });
+    } catch (e) {
+      if (mounted) setState(() => _directError = errorText(e));
+    } finally {
+      _loadingDirect = false;
+    }
+  }
+
+  Future<void> _openDirect(String id, String name) async {
+    final session = widget.session;
+    if (session == null) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => DirectChatRoom(session: session, id: id, name: name),
+      ),
+    );
+    if (mounted) await _loadDirect();
+  }
+
+  Future<void> _newConversation() async {
+    if (_startingChat || widget.session == null) return;
+    final type = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text(
+                'Trò chuyện mới',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.groups_rounded),
+              title: const Text('Chat nhóm theo dự án'),
+              subtitle: const Text('Chọn dự án hoặc tạo dự án mới'),
+              onTap: () => Navigator.pop(sheet, 0),
+            ),
+            ListTile(
+              leading: const Icon(Icons.person_outline_rounded),
+              title: const Text('Nhắn riêng'),
+              subtitle: const Text('Tìm một người bằng username'),
+              onTap: () => Navigator.pop(sheet, 1),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || type == null) return;
+    if (type == 0) {
+      final projects = TaskStore.instance.projectsForCurrentUser();
+      final id = await showModalBottomSheet<String>(
+        context: context,
+        showDragHandle: true,
+        builder: (sheet) => SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(20),
+                child: Text(
+                  'Chọn dự án để trò chuyện',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                ),
+              ),
+              for (final p in projects)
+                ListTile(
+                  leading: const Icon(Icons.groups_rounded),
+                  title: Text('${p['name'] ?? 'Dự án'}'),
+                  onTap: () => Navigator.pop(sheet, p['id'].toString()),
+                ),
+              ListTile(
+                leading: const Icon(Icons.add_circle_outline),
+                title: const Text('Tạo dự án mới'),
+                onTap: () => Navigator.pop(sheet, '__create__'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (!mounted || id == null) return;
+      if (id == '__create__') {
+        await Navigator.push(
+          context,
+          MaterialPageRoute<void>(builder: (_) => const CreateProjectScreen()),
+        );
+      } else {
+        _pickProject(id);
+      }
+      return;
+    }
+    final username = await showTextPrompt(
+      context,
+      title: 'Bắt đầu nhắn riêng',
+      label: 'Username người nhận',
+      hint: 'Ví dụ: nghi',
+      confirmLabel: 'Mở trò chuyện',
+      validator: (value) => RegExp(r'^[a-zA-Z0-9_]{3,30}$').hasMatch(value)
+          ? null
+          : 'Nhập username từ 3–30 ký tự: a-z, 0-9, _.',
+    );
+    if (!mounted || username == null) return;
+    setState(() => _startingChat = true);
+    try {
+      final room = await widget.session!.chat.startDirect(username);
+      await _loadDirect();
+      if (!mounted) return;
+      final id = room['id'].toString();
+      final details = _directRooms.where((r) => r['id'] == id);
+      await _openDirect(
+        id,
+        details.isEmpty ? username : details.first['name'].toString(),
+      );
+    } catch (e) {
+      if (mounted) showAppSnack(context, errorText(e), error: true);
+    } finally {
+      if (mounted) setState(() => _startingChat = false);
+    }
+  }
+
+  void _updateBadge() {
+    final ids = TaskStore.instance
+        .projectsForCurrentUser()
+        .map((p) => p['id'])
+        .toSet();
+    final count = _unreadCounts.entries
+        .where((e) => ids.contains(e.key) || e.key.startsWith('direct:'))
+        .fold<int>(0, (total, e) => total + e.value);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && widget.unread?.value != count) {
+        widget.unread?.value = count;
+      }
+    });
+  }
+
+  Future<void> _markVisibleRead() async {
+    final projectId = _projectId;
+    final messageId = _latestMessageId;
+    if (!widget.active ||
+        !_resumed ||
+        _markingRead ||
+        projectId == null ||
+        messageId == null ||
+        (_unreadCounts[projectId] ?? 0) == 0) {
+      return;
+    }
+    _markingRead = true;
+    try {
+      await widget.session?.chat.markRead(projectId, messageId);
+    } catch (_) {
+      // Keep the unread count if the server is unavailable; retry on next open/update.
+    } finally {
+      _markingRead = false;
+    }
+    if (mounted &&
+        widget.active &&
+        (_projectId != projectId || _latestMessageId != messageId)) {
+      _markVisibleRead();
+    }
   }
 
   void _scrollToEnd([bool animate = true]) {
@@ -126,6 +358,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final session = widget.session;
     final projects = TaskStore.instance.projectsForCurrentUser();
     final ids = projects.map((p) => p['id'].toString()).toSet();
+    _updateBadge();
     for (final id
         in _previewSubs.keys.where((id) => !ids.contains(id)).toList()) {
       unawaited(_previewSubs.remove(id)!.cancel());
@@ -180,6 +413,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_projectId == projectId) return;
     _messageController.clear();
     _projectId = projectId;
+    _latestMessageId = null;
     _listen();
   }
 
@@ -189,6 +423,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _chatSub = null;
     setState(() {
       _projectId = null;
+      _latestMessageId = null;
       _messages = const [];
       _messagesError = null;
     });
@@ -221,6 +456,9 @@ class _ChatScreenState extends State<ChatScreen> {
               return;
             }
             setState(() {
+              _latestMessageId = rows.isEmpty
+                  ? null
+                  : rows.last['id']?.toString();
               _messages = rows
                   .map(
                     (doc) => _ChatMessage.fromDoc(
@@ -232,7 +470,11 @@ class _ChatScreenState extends State<ChatScreen> {
               _loadingMessages = false;
               _messagesError = null;
             });
-            WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              _scrollToEnd();
+              _markVisibleRead();
+            });
           },
           onError: (Object error) {
             if (!mounted ||
@@ -278,7 +520,7 @@ class _ChatScreenState extends State<ChatScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           color: AppColors.purpleSoft,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(22),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -319,11 +561,37 @@ class _ChatScreenState extends State<ChatScreen> {
     final prev = index > 0 ? _messages[index - 1] : null;
     final next = index < _messages.length - 1 ? _messages[index + 1] : null;
     final firstInGroup =
-        prev == null || prev.type != m.type || prev.sender != m.sender;
+        prev == null ||
+        prev.type != m.type ||
+        prev.senderId != m.senderId ||
+        prev.sender != m.sender;
     final lastInGroup =
-        next == null || next.type != m.type || next.sender != m.sender;
+        next == null ||
+        next.type != m.type ||
+        next.senderId != m.senderId ||
+        next.sender != m.sender;
 
-    const big = Radius.circular(18);
+    const tones = [
+      Color(0xFFE5D6F8),
+      Color(0xFFF9D9E8),
+      Color(0xFFD5EBE3),
+      Color(0xFFFFE8BE),
+      Color(0xFFD7E5FC),
+      Color(0xFFFADACD),
+      Color(0xFFD1EDF0),
+      Color(0xFFE8EABD),
+      Color(0xFFF0D7F4),
+      Color(0xFFDDE0F8),
+      Color(0xFFE1EFCE),
+      Color(0xFFF8DEC1),
+    ];
+    final senderKey = m.senderId.isEmpty ? m.sender : m.senderId;
+    final colorIndex = _senderColors.putIfAbsent(
+      senderKey,
+      () => _senderColors.length,
+    );
+    final tone = tones[colorIndex % tones.length];
+    const big = Radius.circular(24);
     const small = Radius.circular(5);
     final radius = BorderRadius.only(
       topLeft: !isMe && !firstInGroup ? small : big,
@@ -338,9 +606,9 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       padding: const EdgeInsets.fromLTRB(14, 9, 14, 8),
       decoration: BoxDecoration(
-        color: isMe ? AppColors.darkPurple : AppColors.surfaceMuted,
+        color: tone,
         borderRadius: radius,
-        border: isMe ? null : Border.all(color: AppColors.border),
+        border: Border.all(color: Colors.white.withValues(alpha: .65)),
       ),
       child: Column(
         crossAxisAlignment: isMe
@@ -354,8 +622,8 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Text(
                 m.sender,
                 style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
                   color: AppColors.purple,
                 ),
               ),
@@ -363,9 +631,9 @@ class _ChatScreenState extends State<ChatScreen> {
           Text(
             m.content,
             style: TextStyle(
-              fontSize: 14.5,
+              fontSize: 16,
               height: 1.35,
-              color: isMe ? Colors.white : AppColors.textPrimary,
+              color: AppColors.textPrimary,
             ),
           ),
           if (lastInGroup && m.time.isNotEmpty)
@@ -375,7 +643,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 m.time,
                 style: TextStyle(
                   fontSize: 10.5,
-                  color: isMe ? Colors.white70 : AppColors.textSecondary,
+                  color: AppColors.textSecondary,
                 ),
               ),
             ),
@@ -411,29 +679,48 @@ class _ChatScreenState extends State<ChatScreen> {
       (p) => p['id'].toString() == _projectId,
       orElse: () => {},
     );
+    final (tone, accent) = chatRoomColors(_projectId ?? '');
     return Container(
       padding: const EdgeInsets.fromLTRB(8, 8, 16, 10),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: AppColors.border)),
+      decoration: BoxDecoration(
+        color: tone,
+        border: Border(left: BorderSide(color: accent, width: 6)),
       ),
       child: Row(
         children: [
           IconButton(
             tooltip: 'Danh sách trò chuyện',
             onPressed: _leaveRoom,
-            icon: const Icon(Icons.arrow_back_rounded),
+            icon: Icon(Icons.arrow_back_rounded, color: accent),
           ),
-          const CircleAvatar(
-            backgroundColor: AppColors.purpleSoft,
-            child: Icon(Icons.groups_rounded, color: AppColors.darkPurple),
+          CircleAvatar(
+            backgroundColor: Colors.white.withValues(alpha: .8),
+            child: Icon(Icons.groups_rounded, color: accent),
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(
-              (project['name'] ?? 'Dự án').toString(),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  (project['name'] ?? 'Dự án').toString(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: accent,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '${(project['memberIds'] as List? ?? const []).toSet().union({if ((project['ownerId'] ?? '').toString().isNotEmpty) project['ownerId']}).length} thành viên',
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -448,22 +735,104 @@ class _ChatScreenState extends State<ChatScreen> {
       final store = TaskStore.instance;
       final projects = store.projectsForCurrentUser();
       if (_projectId == null) {
-        return ProjectChatList(
-          projects: projects,
-          previews: _previews,
-          previewErrors: _previewErrors,
-          currentUserId: widget.session?.auth.currentUserId ?? '',
-          loading: store.projectsLoading,
-          error: store.projectsError,
-          onSelected: _pickProject,
+        final combined = [
+          ...projects,
+          for (final room in _directRooms)
+            {
+              ...room,
+              'id': 'direct:${room['id']}',
+              'createdAt': room['updatedAt'],
+            },
+        ];
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: Column(
+                children: [
+                  if (_directError != null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Chat riêng: $_directError',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: _loadDirect,
+                            child: const Text('Thử lại'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  Expanded(
+                    child: ProjectChatList(
+                      unreadCounts: _unreadCounts,
+                      projects: combined,
+                      previews: {
+                        ..._previews,
+                        for (final room in _directRooms)
+                          'direct:${room['id']}': room['lastMessage'] == null
+                              ? null
+                              : {
+                                  ...Map<String, dynamic>.from(
+                                    room['lastMessage'] as Map,
+                                  ),
+                                  'kind': 'user',
+                                },
+                      },
+                      previewErrors: _previewErrors,
+                      currentUserId: widget.session?.auth.currentUserId ?? '',
+                      loading: store.projectsLoading,
+                      error: store.projectsError,
+                      onSelected: (id) {
+                        if (id.startsWith('direct:')) {
+                          final room = _directRooms.firstWhere(
+                            (r) => 'direct:${r['id']}' == id,
+                          );
+                          _openDirect(
+                            room['id'].toString(),
+                            room['name'].toString(),
+                          );
+                        } else {
+                          _pickProject(id);
+                        }
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Positioned(
+              right: 16,
+              bottom: 18,
+              child: FilledButton.icon(
+                onPressed: _startingChat ? null : _newConversation,
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 16,
+                  ),
+                  elevation: 4,
+                ),
+                icon: const Icon(Icons.add_comment_outlined),
+                label: Text(_startingChat ? 'Đang mở…' : 'Trò chuyện mới'),
+              ),
+            ),
+          ],
         );
       }
-      return Column(
-        children: [
-          _header(projects),
-          Expanded(child: _body(false)),
-          _inputBar(),
-        ],
+      return DecoratedBox(
+        decoration: const BoxDecoration(color: Colors.white),
+        child: Column(
+          children: [
+            _header(projects),
+            Expanded(child: _body(false)),
+            _inputBar(),
+          ],
+        ),
       );
     },
   );
@@ -502,7 +871,37 @@ class _ChatScreenState extends State<ChatScreen> {
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       itemCount: _messages.length,
-      itemBuilder: (context, index) => _bubble(index),
+      itemBuilder: (context, index) {
+        final date = _messages[index].date;
+        final prevDate = index == 0 ? null : _messages[index - 1].date;
+        final showDate =
+            date != null &&
+            (prevDate == null ||
+                date.year != prevDate.year ||
+                date.month != prevDate.month ||
+                date.day != prevDate.day);
+        final now = DateTime.now();
+        return Column(
+          children: [
+            if (showDate)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 18),
+                child: Chip(
+                  label: Text(
+                    date.year == now.year &&
+                            date.month == now.month &&
+                            date.day == now.day
+                        ? 'Hôm nay'
+                        : '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}',
+                  ),
+                  backgroundColor: const Color(0xFFE3D7F5),
+                  side: BorderSide.none,
+                ),
+              ),
+            _bubble(index),
+          ],
+        );
+      },
     );
   }
 
@@ -514,7 +913,7 @@ class _ChatScreenState extends State<ChatScreen> {
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(top: BorderSide(color: AppColors.border)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
@@ -560,7 +959,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           color: Colors.white,
                         ),
                       )
-                    : const Icon(Icons.arrow_upward_rounded),
+                    : const Icon(Icons.send_rounded),
               ),
             ),
           ],

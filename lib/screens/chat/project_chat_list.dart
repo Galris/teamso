@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/chat_palette.dart';
 import '../../widgets/app_widgets.dart';
 
 /// Only receives the signed-in user's real memberships; never supplies demo rooms.
@@ -15,6 +16,7 @@ class ProjectChatList extends StatefulWidget {
     this.error,
     this.previewErrors = const {},
     this.currentUserId = '',
+    this.unreadCounts = const {},
   });
   final List<Map<String, dynamic>> projects;
   final Map<String, Map<String, dynamic>?> previews;
@@ -23,6 +25,7 @@ class ProjectChatList extends StatefulWidget {
   final bool loading;
   final String? error;
   final String currentUserId;
+  final Map<String, int> unreadCounts;
   @override
   State<ProjectChatList> createState() => _ProjectChatListState();
 }
@@ -103,120 +106,194 @@ class _ProjectChatListState extends State<ProjectChatList> {
                     (b['name'] ?? '').toString(),
                   );
           });
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-          child: TextField(
-            onChanged: (value) => setState(() => _query = value),
-            decoration: InputDecoration(
-              hintText: 'Tìm dự án',
-              prefixIcon: const Icon(Icons.search_rounded),
-              filled: true,
-              fillColor: AppColors.purpleSoft,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(18),
-                borderSide: BorderSide.none,
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(18),
-                borderSide: BorderSide.none,
-              ),
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          stops: [0, .65, 1],
+          colors: [Color(0xFFE8E5FA), Colors.white, AppColors.pinkSoft],
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(22, 20, 22, 4),
+            child: Row(
+              children: [
+                Icon(Icons.forum_outlined, color: AppColors.darkPurple),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Kết nối với nhóm',
+                    style: TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.darkPurple,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(22, 0, 22, 12),
-          child: Row(
-            children: [
-              const Icon(Icons.expand_more_rounded, size: 20),
-              const SizedBox(width: 6),
-              const Expanded(
-                child: Text(
-                  'Cuộc trò chuyện',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+            child: TextField(
+              onChanged: (value) => setState(() => _query = value),
+              decoration: InputDecoration(
+                hintText: 'Tìm cuộc trò chuyện…',
+                prefixIcon: const Icon(Icons.search_rounded),
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: BorderSide.none,
                 ),
               ),
-              Text(
-                '${widget.projects.length}',
-                style: const TextStyle(color: AppColors.textSecondary),
-              ),
-            ],
-          ),
-        ),
-        if (widget.error != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 22),
-            child: Text(
-              widget.error!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ),
-        Expanded(
-          child: projects.isEmpty
-              ? const EmptyState(
-                  icon: Icons.search_off_rounded,
-                  title: 'Không tìm thấy dự án',
-                  message: 'Thử tìm bằng tên khác.',
-                )
-              : ListView.separated(
-                  padding: const EdgeInsets.only(bottom: 24),
-                  itemCount: projects.length,
-                  separatorBuilder: (_, _) =>
-                      const Divider(indent: 90, endIndent: 20, height: 1),
-                  itemBuilder: (context, index) {
-                    final project = projects[index];
-                    final id = project['id'].toString();
-                    final latest = widget.previews[id];
-                    return ListTile(
-                      key: ValueKey('chat-project-$id'),
-                      onTap: () => widget.onSelected(id),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 22,
-                        vertical: 12,
-                      ),
-                      leading: const CircleAvatar(
-                        radius: 27,
-                        backgroundColor: AppColors.purpleSoft,
-                        child: Icon(
-                          Icons.forum_rounded,
-                          color: AppColors.darkPurple,
-                          size: 26,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 0, 22, 12),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.expand_more_rounded,
+                  size: 20,
+                  color: AppColors.darkPurple,
+                ),
+                const SizedBox(width: 6),
+                const Expanded(
+                  child: Text(
+                    'Cuộc trò chuyện',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.darkPurple,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${widget.projects.length}',
+                  style: const TextStyle(color: AppColors.textSecondary),
+                ),
+              ],
+            ),
+          ),
+          if (widget.error != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 22),
+              child: Text(
+                widget.error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+          Expanded(
+            child: projects.isEmpty
+                ? const EmptyState(
+                    icon: Icons.search_off_rounded,
+                    title: 'Không tìm thấy dự án',
+                    message: 'Thử tìm bằng tên khác.',
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.only(bottom: 100),
+                    itemCount: projects.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 6),
+                    itemBuilder: (context, index) {
+                      final project = projects[index];
+                      final id = project['id'].toString();
+                      final latest = widget.previews[id];
+                      final (tone, accent) = chatRoomColors(id);
+                      return Card(
+                        color: tone,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          side: const BorderSide(color: Colors.white, width: 2),
                         ),
-                      ),
-                      title: Text(
-                        (project['name'] ?? 'Dự án').toString(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 16,
+                        margin: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 5,
                         ),
-                      ),
-                      subtitle: Padding(
-                        padding: const EdgeInsets.only(top: 7),
-                        child: Text(
-                          _preview(id),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppColors.textSecondary,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border(
+                              left: BorderSide(color: accent, width: 6),
+                            ),
+                          ),
+                          child: ListTile(
+                            key: ValueKey('chat-project-$id'),
+                            onTap: () => widget.onSelected(id),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 14,
+                            ),
+                            leading: CircleAvatar(
+                              radius: 27,
+                              backgroundColor: Colors.white.withValues(
+                                alpha: .8,
+                              ),
+                              child: Icon(
+                                id.startsWith('direct:')
+                                    ? Icons.person_rounded
+                                    : Icons.groups_rounded,
+                                color: accent,
+                                size: 26,
+                              ),
+                            ),
+                            title: Text(
+                              (project['name'] ?? 'Dự án').toString(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 18,
+                              ),
+                            ),
+                            subtitle: Padding(
+                              padding: const EdgeInsets.only(top: 7),
+                              child: Text(
+                                _preview(id),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ),
+                            trailing: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _time(_date(latest?['createdAt'])),
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                                if ((widget.unreadCounts[id] ?? 0) > 0) ...[
+                                  const SizedBox(height: 6),
+                                  Badge(
+                                    label: Text(
+                                      '${widget.unreadCounts[id]! > 99 ? '99+' : widget.unreadCounts[id]}',
+                                    ),
+                                    backgroundColor: accent,
+                                  ),
+                                ],
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                      trailing: Text(
-                        _time(_date(latest?['createdAt'])),
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-        ),
-      ],
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }
