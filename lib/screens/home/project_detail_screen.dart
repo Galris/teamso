@@ -8,15 +8,12 @@ import '../../services/app_services.dart';
 import '../../services/service_errors.dart';
 import '../../services/team_services.dart';
 import '../../widgets/prompt_dialog.dart';
+import 'invite_member_dialog.dart';
 
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
+import '../../core/theme/app_colors.dart';
 
-const Color teamUpGreen = Color(0xFF439751);
-const Color teamUpPurple = Color(0xFF867CB3);
-const Color teamUpPink = Color(0xFFF472B6);
-const Color teamUpYellow = Color(0xFFFACC15);
-const Color teamUpDarkPurple = Color(0xFF4D4379);
 
 const Color _background = Color(0xFFF7F7FB);
 const Color _textPrimary = Color(0xFF282638);
@@ -642,13 +639,16 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
   }
 
   Future<void> _addMemberByUsername() async {
-    final username = await showTextPrompt(
+    final picked = await showInviteMemberDialog(
       context,
-      title: 'Thêm thành viên',
-      label: 'Username',
-      confirmLabel: 'Thêm',
+      service: _projectService,
+      existingUids: {
+        for (final member in _members)
+          (member['uid'] ?? member['id'] ?? '').toString(),
+      },
     );
-    if (username == null || username.isEmpty || !mounted) return;
+    final username = (picked?['username'] ?? '').toString();
+    if (username.isEmpty || !mounted) return;
     await _runAction(
       () => _projectService.addMemberByUsername(widget.projectId, username),
       successMessage: 'Đã thêm thành viên.',

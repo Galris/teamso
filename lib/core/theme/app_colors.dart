@@ -41,3 +41,11 @@ abstract final class AppColors {
     colors: [darkPurple, purple, pink],
   );
 }
+
+/// Hằng màu thương hiệu dùng chung cho các màn hình (khai báo MỘT lần
+/// duy nhất để tránh lỗi "ambiguous import" khi nhiều file cùng import).
+const Color teamUpGreen = AppColors.green;
+const Color teamUpPurple = AppColors.purple;
+const Color teamUpPink = AppColors.pink;
+const Color teamUpYellow = AppColors.yellow;
+const Color teamUpDarkPurple = AppColors.darkPurple;

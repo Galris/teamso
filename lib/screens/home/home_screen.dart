@@ -7,11 +7,6 @@ import '../projects/create_project_screen.dart';
 import '../projects/join_project_screen.dart';
 import 'project_detail_screen.dart';
 
-const Color teamUpGreen = Color(0xFF439751);
-const Color teamUpPurple = Color(0xFF867CB3);
-const Color teamUpPink = Color(0xFFF472B6);
-const Color teamUpYellow = Color(0xFFFACC15);
-const Color teamUpDarkPurple = Color(0xFF4D4379);
 
 const Color _borderColor = Color(0xFFE8E6ED);
 const Color _textColor = Color(0xFF252331);

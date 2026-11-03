@@ -219,10 +219,18 @@ class ApiClient {
       );
     } on FormatException {
       throw const ApiException('Máy chủ trả dữ liệu không hợp lệ.');
-    } on Exception {
+    } on Exception catch (error) {
       // http.ClientException, SocketException, HandshakeException...
-      throw const ApiException(
-        'Không thể kết nối máy chủ. Kiểm tra mạng và địa chỉ API.',
+      // Khi debug: ghi log và hiện luôn địa chỉ API đang dùng để dễ chẩn đoán
+      // (máy thật không dùng được 10.0.2.2 / 127.0.0.1).
+      if (kDebugMode) {
+        debugPrint('API $method $path ($baseUrl) failed: $error');
+      }
+      throw ApiException(
+        kDebugMode
+            ? 'Không thể kết nối máy chủ ($baseUrl). Hãy kiểm tra backend đang '
+                  'chạy và truyền --dart-define=API_BASE_URL=...'
+            : 'Không thể kết nối máy chủ. Kiểm tra mạng và địa chỉ API.',
         isNetwork: true,
       );
     }

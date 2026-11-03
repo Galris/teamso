@@ -3,18 +3,26 @@ import { FieldValue } from 'firebase-admin/firestore';
 
 const fail = (status, message) => Object.assign(new Error(message), { status, code: 'WORKSPACE_ERROR' });
 const text = z.string().trim().min(1).max(200);
-const url = z.string().trim().max(2048).refine(value => {
-  if (!value) return true;
+const isHttpUrl = value => {
   try { const u = new URL(value); return ['http:', 'https:'].includes(u.protocol) && !!u.hostname && !u.username && !u.password; }
   catch { return false; }
-}, 'Đường dẫn phải là URL http:// hoặc https:// hợp lệ.');
+};
+const url = z.string().trim().max(2048).refine(value => !value || isHttpUrl(value), 'Đường dẫn phải là URL http:// hoặc https:// hợp lệ.');
+// Cuộc họp mới luôn cần link vào phòng (Meet/Zoom/Teams); dữ liệu cũ không có vẫn đọc bình thường.
+const requiredUrl = z.string({ error: 'Vui lòng nhập link vào cuộc họp.' }).trim().min(1, 'Vui lòng nhập link vào cuộc họp.').max(2048).refine(isHttpUrl, 'Link họp phải là URL http:// hoặc https:// hợp lệ.');
 export const documentSchema = z.object({ label: text, url: url.default('') }).strict();
-export const meetingSchema = z.object({ label: text, startsAt: z.iso.datetime({ offset: true }), endsAt: z.iso.datetime({ offset: true }) }).strict()
+export const meetingSchema = z.object({ label: text, startsAt: z.iso.datetime({ offset: true }), endsAt: z.iso.datetime({ offset: true }), meetUrl: requiredUrl }).strict()
   .refine(v => Date.parse(v.endsAt) > Date.parse(v.startsAt), 'Giờ kết thúc phải sau giờ bắt đầu.')
   .refine(v => Date.parse(v.startsAt) > Date.now(), 'Vui lòng chọn giờ họp trong tương lai.');
-export const voteSchema = z.object({ question: z.string().trim().min(1).max(500), options: z.array(z.string().trim().min(1).max(120)).min(2).max(20) }).strict()
-  .refine(v => new Set(v.options.map(x => x.toLocaleLowerCase('vi'))).size === v.options.length, 'Các phương án không được trùng nhau.');
-const ballotSchema = z.object({ options: z.array(z.number().int().min(0)).max(20) }).strict();
+export const voteSchema = z.object({
+  question: z.string().trim().min(1, 'Vui lòng nhập nội dung bình chọn.').max(500),
+  kind: z.enum(['general', 'meeting'], { error: 'Loại bình chọn không hợp lệ.' }).default('general'),
+  options: z.array(z.string().trim().min(1, 'Phương án không được để trống.').max(120)).min(2, 'Cần ít nhất hai phương án.'),
+}).strict()
+  .refine(v => new Set(v.options.map(x => x.toLocaleLowerCase('vi'))).size === v.options.length, 'Các phương án không được trùng nhau.')
+  .refine(v => v.kind === 'meeting' || v.options.length <= 20, 'Bình chọn thường có tối đa 20 phương án.')
+  .refine(v => v.kind !== 'meeting' || v.options.length <= 60, 'Bình chọn lịch họp có tối đa 60 khung giờ.');
+const ballotSchema = z.object({ options: z.array(z.number().int().min(0)).max(60, 'Quá nhiều lựa chọn.') }).strict();
 const parse = (schema, value) => {
   const result = schema.safeParse(value);
   if (!result.success) throw fail(400, result.error.issues[0]?.message ?? 'Dữ liệu Workspace không hợp lệ.');

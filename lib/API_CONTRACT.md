@@ -22,4 +22,28 @@ All protected endpoints require `Authorization: Bearer <Firebase ID token>`. The
 - `PATCH /api/projects/:projectId/tasks/:taskId` – update task with role/assignee checks.
 - `DELETE /api/projects/:projectId/tasks/:taskId` – delete task (leader only).
 
+## Auth (public – không cần Bearer token)
+- `POST /api/auth/signin` – body `{username, password}`; backend xác minh mật khẩu rồi trả `{user: {id, email, ...}}`. App dùng `user.email` để đăng nhập Firebase Auth (đăng nhập bằng **email** không qua API).
+- `POST /api/auth/refresh` – body `{refreshToken}` → `{accessToken, refreshToken}` (chỉ dùng cho phiên không-Firebase, legacy).
+- `POST /api/auth/signout` – body `{refreshToken}` (legacy).
+
+## Workspace (collection = `documents` | `meetings` | `votes`)
+- `POST /api/projects/:projectId/workspace/documents` – body `{label, url?}` (url rỗng hoặc http/https).
+- `POST /api/projects/:projectId/workspace/meetings` – body `{label, startsAt, endsAt}` (ISO‑8601 UTC).
+- `POST /api/projects/:projectId/workspace/votes` – body `{question, options: string[2..20 (hoặc tới 60 khung giờ khi kind=meeting)], kind?}`. `kind` = `general` (mặc định, **không gửi**) hoặc `meeting` (chọn khung giờ rảnh kiểu When2meet; backend cần lưu `kind` vào document vote).
+- `PUT /api/projects/:projectId/workspace/votes/:voteId/ballot` – body `{options: number[]}` (chỉ số phương án/khung giờ; mảng rỗng = bỏ phiếu).
+- `DELETE /api/projects/:projectId/workspace/:collection/:id`.
+
+Phiếu bầu lưu ở `projects/{id}/workspace…/votes/{voteId}/ballots/{uid}` (`options: number[]`). App tự tổng hợp `counts`, `totalVotes`, `myVotes`, `voters` từ các ballot qua Firestore snapshot.
+
+## Users (hiện chưa có màn hình nào gọi – `user_service.dart` là code dự phòng)
+- `GET /api/users/me`, `PATCH /api/users/profile`, `POST /api/users/change-password`, `POST /api/users/avatar` (multipart), `DELETE /api/users/me`.
+
+## Tìm tài khoản để mời thành viên
+Không qua API: `ProjectService.searchAccounts` truy vấn Firestore `users` theo tiền tố `username` (hoặc `email` khi có `@`). Firestore rules phải cho phép người dùng đã đăng nhập đọc collection này; nếu không, chuyển sang một endpoint `GET /api/users/search?q=`.
+
+## Cấu hình địa chỉ API ở client
+Mặc định: Android emulator `http://10.0.2.2:3000/api`, nền tảng khác `http://127.0.0.1:3000/api`. **Máy thật** phải truyền địa chỉ LAN/HTTPS:
+`flutter run --dart-define=API_BASE_URL=http://<IP-LAN>:3000/api`. Backend phải listen `0.0.0.0`; Android 9+ cần `usesCleartextTraffic` cho HTTP (hoặc dùng HTTPS).
+
 Writes update Firestore documents/subcollections. Firestore listeners on Flutter refresh Home, Project Detail, Task Board and member lists automatically. Notification endpoints and FCM are intentionally outside this scope.

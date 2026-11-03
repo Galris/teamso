@@ -6,7 +6,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../controllers/session_controller.dart';
 import '../../services/service_errors.dart';
 import '../../widgets/app_widgets.dart';
+import '../../utils/doc_kind.dart';
 import '../tasks/task_store.dart';
+import 'vote_dialogs.dart';
 
 /// Workspace theo từng dự án:
 /// Tài liệu, Quick Vote nhiều lựa chọn và lịch họp.
@@ -25,6 +27,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   List<Map<String, dynamic>> _documents = const [];
   List<Map<String, dynamic>> _meetings = const [];
   List<Map<String, dynamic>> _votes = const [];
+  List<Map<String, dynamic>> _members = const [];
 
   bool _loading = true;
   String? _error;
@@ -34,6 +37,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   StreamSubscription? _docsSub;
   StreamSubscription? _meetingsSub;
   StreamSubscription? _votesSub;
+  StreamSubscription? _membersSub;
 
   @override
   void dispose() {
@@ -45,10 +49,12 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     _docsSub?.cancel();
     _meetingsSub?.cancel();
     _votesSub?.cancel();
+    _membersSub?.cancel();
 
     _docsSub = null;
     _meetingsSub = null;
     _votesSub = null;
+    _membersSub = null;
   }
 
   void _syncProject(List<Map<String, dynamic>> projects) {
@@ -61,6 +67,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
           _documents = const [];
           _meetings = const [];
           _votes = const [];
+          _members = const [];
           _loading = false;
         });
       }
@@ -101,6 +108,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
       _documents = const [];
       _meetings = const [];
       _votes = const [];
+      _members = const [];
     });
 
     _docsSub = workspace
@@ -152,6 +160,21 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
           onError: (Object error) {
             if (mounted && _projectId == projectId) _onError(error);
           },
+        );
+
+    _listenMembers(projectId);
+  }
+
+  void _listenMembers(String projectId) {
+    _membersSub = widget.session!.projects
+        .watchMembers(projectId)
+        .listen(
+          (rows) {
+            if (!mounted || _projectId != projectId) return;
+            setState(() => _members = rows);
+          },
+          // Lưới lịch họp chỉ là phần hiển thị phụ, lỗi ở đây không chặn Workspace.
+          onError: (Object _) {},
         );
   }
 
@@ -384,53 +407,17 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
 
     if (projectId == null || widget.session == null) return;
 
-    final question = await _showInputDialog(
-      title: 'Tạo bình chọn',
-      label: 'Nội dung câu hỏi',
-      maxLength: 500,
-    );
+    final draft = await showVoteCreateDialog(context);
 
-    if (!mounted || question == null) return;
-
-    final rawOptions = await _showInputDialog(
-      title: 'Các phương án',
-      label: 'Ngăn cách bằng dấu phẩy (2–20)',
-      maxLength: 2400,
-      validate: (value) {
-        final choices = value
-            .split(',')
-            .map((v) => v.trim())
-            .where((v) => v.isNotEmpty)
-            .toList();
-        if (choices.length < 2 || choices.length > 20) {
-          return 'Nhập từ 2 đến 20 phương án.';
-        }
-        if (choices.any((v) => v.length > 120)) {
-          return 'Mỗi phương án tối đa 120 ký tự.';
-        }
-        if (choices.map((v) => v.toLowerCase()).toSet().length !=
-            choices.length) {
-          return 'Các phương án không được trùng nhau.';
-        }
-        return null;
-      },
-    );
-
-    if (!mounted || rawOptions == null) return;
-
-    final options = rawOptions
-        .split(',')
-        .map((option) => option.trim())
-        .where((option) => option.isNotEmpty)
-        .toList();
-
-    if (options.length < 2) {
-      showAppSnack(context, 'Cần nhập ít nhất hai phương án.', error: true);
-      return;
-    }
+    if (!mounted || draft == null) return;
 
     await _guard(
-      () => widget.session!.workspace.addVote(projectId, question, options),
+      () => widget.session!.workspace.addVote(
+        projectId,
+        draft.question,
+        draft.options,
+        kind: draft.kind,
+      ),
       'Đã tạo bình chọn.',
     );
   }
@@ -447,77 +434,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     final projectId = _projectId!;
     final voteId = vote['id'].toString();
 
-    final options = (vote['options'] as List? ?? const []).toList();
-
-    final selected = <int>{
-      ...((vote['myVotes'] as List?) ?? const []).whereType<int>(),
-    };
-
-    final result = await showDialog<List<int>>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (dialogContext, setDialogState) {
-            return AlertDialog(
-              title: const Text('Chọn phương án bình chọn'),
-              content: SizedBox(
-                width: double.maxFinite,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        (vote['question'] ?? 'Bình chọn').toString(),
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'Bạn có thể chọn nhiều phương án '
-                        'và thay đổi lựa chọn bất cứ lúc nào.',
-                      ),
-                      const SizedBox(height: 12),
-                      for (var i = 0; i < options.length; i++)
-                        CheckboxListTile(
-                          contentPadding: EdgeInsets.zero,
-                          controlAffinity: ListTileControlAffinity.leading,
-                          title: Text(options[i].toString()),
-                          value: selected.contains(i),
-                          onChanged: (checked) {
-                            setDialogState(() {
-                              if (checked == true) {
-                                selected.add(i);
-                              } else {
-                                selected.remove(i);
-                              }
-                            });
-                          },
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(dialogContext);
-                  },
-                  child: const Text('Hủy'),
-                ),
-                FilledButton(
-                  onPressed: () {
-                    final choices = selected.toList()..sort();
-
-                    Navigator.pop(dialogContext, choices);
-                  },
-                  child: const Text('Lưu lựa chọn'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
+    final result = await showVoteBallotDialog(context, vote: vote);
 
     if (!mounted || result == null) return;
 
@@ -647,6 +564,13 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     }
   }
 
+  Widget _docLeading(Map<String, dynamic> doc) {
+    final url = (doc['url'] ?? '').toString();
+    if (url.isEmpty) return const Icon(Icons.description_outlined);
+    final kind = DocKind.detect(url);
+    return Icon(kind.icon, color: kind.color);
+  }
+
   Widget _buildDocuments() {
     if (_documents.isEmpty) {
       return const Text('Chưa có tài liệu nào.');
@@ -657,7 +581,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
         for (final doc in _documents)
           ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.description_outlined),
+            leading: _docLeading(doc),
             title: Text((doc['label'] ?? 'Tài liệu').toString()),
             subtitle: (doc['url'] ?? '').toString().isNotEmpty
                 ? Text(
@@ -775,7 +699,52 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   // HIỂN THỊ KẾT QUẢ VÀ LỰA CHỌN CỦA TỪNG NGƯỜI
   // =========================================================
 
+  String _initialsOf(String name) {
+    final words = name.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty);
+    if (words.isEmpty) return '?';
+    return words.take(2).map((w) => w[0].toUpperCase()).join();
+  }
+
+  /// Bình chọn loại 'meeting': lưới When2meet (dòng = khung giờ, cột = người).
+  Widget _meetingVote(Map<String, dynamic> vote) {
+    final List<Map<String, dynamic>> members = [
+      for (final member in _members)
+        {
+          'uid': (member['uid'] ?? member['id'] ?? '').toString(),
+          'name': (member['displayName'] ?? member['username'] ?? 'TV')
+              .toString(),
+          'initials': _initialsOf(
+            (member['displayName'] ?? member['username'] ?? '?').toString(),
+          ),
+        },
+    ];
+    final total = (vote['totalVotes'] as num? ?? 0).toInt();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        MeetingVoteGrid(vote: vote, members: members),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 12,
+          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text('Số người đã tham gia: $total'),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : () => _editVote(vote),
+              icon: const Icon(Icons.edit_calendar_outlined),
+              label: const Text('Chọn khung giờ rảnh'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   Widget _voteOptions(Map<String, dynamic> vote) {
+    if (vote['kind']?.toString() == 'meeting') return _meetingVote(vote);
+
     final options = (vote['options'] as List? ?? const []).toList();
 
     final counts = (vote['counts'] as List? ?? const []).toList();
