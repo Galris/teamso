@@ -71,7 +71,37 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     super.dispose();
   }
 
+  bool get hasOverdueTasks {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    return _store.tasksForCurrentUser().any((task) {
+      final due = DateTime.tryParse(task['dueDate']?.toString() ?? '');
+      return task['status'] != 'Hoàn thành' &&
+          due != null &&
+          due.isBefore(today);
+    });
+  }
+
+  bool get hasManyTasks =>
+      _store
+          .tasksForCurrentUser()
+          .where((task) => task['status'] != 'Hoàn thành')
+          .length >=
+      5;
+
+  bool get completedEarly {
+    final now = DateTime.now();
+    return _store.tasksForCurrentUser().any((task) {
+      final due = DateTime.tryParse(task['dueDate']?.toString() ?? '');
+      return task['status'] == 'Hoàn thành' && due != null && due.isAfter(now);
+    });
+  }
+
   String get _greeting {
+    if (hasOverdueTasks) return 'Cùng xử lý công việc quá hạn nhé';
+    if (hasManyTasks) return 'Nhiều việc đang chờ, mình làm từng bước nhé';
+    if (completedEarly) return 'Hoàn thành sớm rồi, bạn làm tốt lắm';
+
     final hour = DateTime.now().hour;
     if (hour < 11) return 'Chào buổi sáng';
     if (hour < 14) return 'Chào buổi trưa';
