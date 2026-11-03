@@ -78,7 +78,7 @@ class TaskBoardScreenState extends State<TaskBoardScreen> {
   String? _focusedStatus;
   final Set<String> _collapsed = {};
 
-  /// 0 = danh sách theo trạng thái, 1 = lịch deadline.
+  /// 0 = danh sách theo trạng thái, 1 = lịch họp nhóm + deadline.
   int _viewMode = 0;
 
   static const List<String> _statuses = [
@@ -233,7 +233,7 @@ class TaskBoardScreenState extends State<TaskBoardScreen> {
     }
 
     try {
-      final warning = await _store.submitTask(
+      await _store.submitTask(
         task['id'].toString(),
         outputLink: result,
       );
@@ -241,9 +241,7 @@ class TaskBoardScreenState extends State<TaskBoardScreen> {
       if (!mounted) return;
       setState(() {});
       _showMessage(
-        warning != null
-            ? 'Đã hoàn thành nhưng chưa cập nhật được Tài nguyên: $warning'
-            : _store.roleInProject(task['projectId'].toString()) == 'Leader'
+        _store.roleInProject(task['projectId'].toString()) == 'Leader'
             ? 'Đã hoàn thành công việc.'
             : 'Đã gửi công việc cho Leader duyệt.',
       );
@@ -258,14 +256,10 @@ class TaskBoardScreenState extends State<TaskBoardScreen> {
   }) async {
     if (approve) {
       try {
-        final warning = await _store.approveTask(task['id'].toString());
+        await _store.approveTask(task['id'].toString());
         if (!mounted) return;
         setState(() {});
-        _showMessage(
-          warning != null
-              ? 'Đã duyệt nhưng chưa cập nhật được Tài nguyên: $warning'
-              : 'Đã duyệt công việc.',
-        );
+        _showMessage('Đã duyệt công việc.');
       } catch (e) {
         _showMessage(e.toString());
       }
@@ -941,7 +935,9 @@ class TaskBoardScreenState extends State<TaskBoardScreen> {
                       const SizedBox(width: 7),
                       Flexible(
                         child: Text(
-                          i == 0 ? 'Công việc' : 'Lịch deadline',
+                          i == 0 ? 'Công việc' : 'Lịch họp & deadline',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
@@ -1038,6 +1034,7 @@ class TaskBoardScreenState extends State<TaskBoardScreen> {
                               store: _store,
                               myTasks: _myCalendarTasks(),
                               teamTasks: List.of(_store.tasks),
+                              meetings: List.of(_store.meetings),
                             ),
                           ),
                         ],

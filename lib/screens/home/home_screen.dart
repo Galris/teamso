@@ -29,12 +29,24 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
   final TaskStore _store = TaskStore.instance;
   final TextEditingController _searchController = TextEditingController();
 
+  static const String _hiddenFilter = 'Đã ẩn';
   String _filter = 'Tất cả';
+
+  int get _hiddenCount => _store
+      .projectsForCurrentUser()
+      .where((p) => _store.isProjectHidden(p['id'].toString()))
+      .length;
+
+  int get _visibleCount =>
+      _store.projectsForCurrentUser().length - _hiddenCount;
 
   List<Map<String, dynamic>> get _filteredProjects {
     final query = _searchController.text.trim().toLowerCase();
 
     return _store.projectsForCurrentUser().where((project) {
+      final hidden = _store.isProjectHidden(project['id'].toString());
+      // Dự án đã ẩn chỉ hiện ở tab "Đã ẩn"; các tab khác không có chúng.
+      if ((_filter == _hiddenFilter) != hidden) return false;
       final name = project['name']?.toString() ?? '';
       final tag = project['tag']?.toString() ?? '';
       final role = _store.roleInProject(project['id'].toString());
@@ -45,6 +57,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
 
       final matchesRole =
           _filter == 'Tất cả' ||
+          _filter == _hiddenFilter ||
           (_filter == 'Tôi là leader' && role == 'Leader') ||
           (_filter == 'Tôi là member' && role == 'Member');
 
@@ -58,12 +71,91 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     super.dispose();
   }
 
+  bool get hasOverdueTasks {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    return _store.tasksForCurrentUser().any((task) {
+      final due = DateTime.tryParse(task['dueDate']?.toString() ?? '');
+      return task['status'] != 'Hoàn thành' &&
+          due != null &&
+          due.isBefore(today);
+    });
+  }
+
+  bool get hasManyTasks =>
+      _store
+          .tasksForCurrentUser()
+          .where((task) => task['status'] != 'Hoàn thành')
+          .length >=
+      5;
+
+  bool get completedEarly {
+    final now = DateTime.now();
+    return _store.tasksForCurrentUser().any((task) {
+      final due = DateTime.tryParse(task['dueDate']?.toString() ?? '');
+      return task['status'] == 'Hoàn thành' && due != null && due.isAfter(now);
+    });
+  }
+
   String get _greeting {
+    if (hasOverdueTasks) return 'Cùng xử lý công việc quá hạn nhé';
+    if (hasManyTasks) return 'Nhiều việc đang chờ, mình làm từng bước nhé';
+    if (completedEarly) return 'Hoàn thành sớm rồi, bạn làm tốt lắm';
+
     final hour = DateTime.now().hour;
     if (hour < 11) return 'Chào buổi sáng';
     if (hour < 14) return 'Chào buổi trưa';
     if (hour < 18) return 'Chào buổi chiều';
     return 'Chào buổi tối';
+  }
+
+  /// Câu cổ vũ theo số việc chưa hoàn thành trong "Việc của tôi".
+  /// Mỗi nhóm có vài câu, đổi theo ngày để không lặp lại mãi một câu.
+  String get _motivation {
+    final mine = _store.tasksForCurrentUser();
+    final open = mine.where((t) => t['status'] != 'Hoàn thành').length;
+    final List<String> quotes;
+    if (open >= 6) {
+      quotes = const [
+        'Còn rất nhiều task chờ bạn hoàn thành đấy!',
+        'Việc nhiều thì chia nhỏ ra, làm từng cái một thôi!',
+        'Bắt đầu từ task dễ nhất, đà sẽ đến ngay!',
+      ];
+    } else if (open >= 3) {
+      quotes = const [
+        'Còn vài task nữa thôi, cố lên nào!',
+        'Bạn đang đi đúng hướng, tăng tốc một chút nhé!',
+        'Từng bước nhỏ mỗi ngày sẽ thành kết quả lớn!',
+      ];
+    } else if (open >= 1) {
+      quotes = const [
+        'Chỉ còn một chút nữa là xong rồi, cố lên!',
+        'Sắp về đích rồi, giữ vững phong độ nhé!',
+        'Gần xong rồi, hoàn thành nốt để nhẹ đầu thôi!',
+      ];
+    } else if (mine.any((t) => t['status'] == 'Hoàn thành')) {
+      // Từng hoàn thành task và hiện không còn việc nào.
+      quotes = const [
+        'Bạn đã hoàn thành hết task, tuyệt vời lắm!',
+        'Không còn task nào, hãy tận hưởng chút thời gian nghỉ nhé!',
+        'Làm tốt lắm! Sẵn sàng cho thử thách tiếp theo chưa?',
+      ];
+    } else if (_store.projectsForCurrentUser().isEmpty) {
+      // Tài khoản mới: chưa có dự án nào.
+      quotes = const [
+        'Chào mừng bạn đến với TeamUp! Tạo hoặc tham gia dự án đầu tiên nhé!',
+        'Mọi hành trình đều bắt đầu từ dự án đầu tiên, bắt đầu thôi!',
+      ];
+    } else {
+      // Đã có dự án nhưng chưa được giao task nào.
+      quotes = const [
+        'Chưa có task nào dành cho bạn, hãy cùng nhóm lên kế hoạch nhé!',
+        'Dự án đã sẵn sàng, chỉ chờ task đầu tiên của bạn thôi!',
+      ];
+    }
+    final now = DateTime.now();
+    final dayOfYear = now.difference(DateTime(now.year)).inDays;
+    return quotes[dayOfYear % quotes.length];
   }
 
   /// Tên gọi (từ cuối của họ tên theo thói quen người Việt).
@@ -435,11 +527,43 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
     );
   }
 
+  Future<void> _toggleHidden(Map<String, dynamic> project) async {
+    final id = project['id'].toString();
+    final name = project['name']?.toString() ?? 'Dự án';
+    final hide = !_store.isProjectHidden(id);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await _store.setProjectHidden(id, hide);
+    } catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.toString())));
+      return;
+    }
+    if (!mounted) return;
+    // Dự án cuối cùng ở tab "Đã ẩn" vừa được bỏ ẩn thì quay về tab Tất cả.
+    if (!hide && _filter == _hiddenFilter && _hiddenCount == 0) {
+      setState(() => _filter = 'Tất cả');
+    }
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            hide ? 'Đã ẩn dự án "$name".' : 'Đã bỏ ẩn dự án "$name".',
+          ),
+          action: SnackBarAction(
+            label: 'Hoàn tác',
+            onPressed: () => _store.setProjectHidden(id, !hide).catchError((_) {}),
+          ),
+        ),
+      );
+  }
+
   Widget _buildFilterChip(String label) {
     final selected = _filter == label;
     final accent = switch (label) {
       'Tôi là leader' => const Color(0xFF9A621A),
       'Tôi là member' => const Color(0xFF347C57),
+      _hiddenFilter => const Color(0xFF777482),
       _ => const Color(0xFF7663A4),
     };
 
@@ -449,6 +573,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
         label: Text(switch (label) {
           'Tôi là leader' => 'Trưởng nhóm',
           'Tôi là member' => 'Thành viên',
+          _hiddenFilter => 'Đã ẩn ($_hiddenCount)',
           _ => label,
         }),
         selected: selected,
@@ -570,10 +695,38 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                           ],
                         ),
                       ),
-                      const Icon(
-                        Icons.arrow_outward_rounded,
-                        size: 19,
-                        color: _secondaryColor,
+                      SizedBox(
+                        width: 30,
+                        height: 30,
+                        child: PopupMenuButton<String>(
+                          tooltip: 'Tùy chọn',
+                          padding: EdgeInsets.zero,
+                          iconSize: 20,
+                          icon: const Icon(
+                            Icons.more_vert_rounded,
+                            color: _secondaryColor,
+                          ),
+                          onSelected: (_) => _toggleHidden(project),
+                          itemBuilder: (_) => [
+                            PopupMenuItem(
+                              value: 'hide',
+                              child: ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(
+                                  _store.isProjectHidden(id)
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
+                                ),
+                                title: Text(
+                                  _store.isProjectHidden(id)
+                                      ? 'Bỏ ẩn dự án'
+                                      : 'Ẩn dự án',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -782,7 +935,7 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                 Text(
                   _store.projectsLoading
                       ? 'Đang tải không gian làm việc…'
-                      : '${all.length} dự án · Cùng nhóm tạo nên điều tuyệt vời',
+                      : '$_visibleCount dự án · $_motivation',
                   style: const TextStyle(
                     fontSize: 12,
                     color: Color(0xFFF5F0FF),
@@ -896,6 +1049,8 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware {
                       _buildFilterChip('Tất cả'),
                       _buildFilterChip('Tôi là leader'),
                       _buildFilterChip('Tôi là member'),
+                      if (_hiddenCount > 0 || _filter == _hiddenFilter)
+                        _buildFilterChip(_hiddenFilter),
                     ],
                   ),
                 ),

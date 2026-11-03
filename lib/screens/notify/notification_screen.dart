@@ -83,7 +83,7 @@ class _TeamNotification {
       'meeting' => _NotificationType.meeting,
       'vote' => _NotificationType.vote,
       'document' => _NotificationType.document,
-      'member_added' || 'project_joined' => _NotificationType.project,
+      'member_added' || 'project_joined' || 'member_left' => _NotificationType.project,
       'completed' || 'done' || 'approved' => _NotificationType.completed,
       'pending_review' => _NotificationType.pendingReview,
       'review_required' => _NotificationType.reviewRequired,

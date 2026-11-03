@@ -15,14 +15,23 @@ class TaskStore extends ChangeNotifier {
 
   final ProjectService _projectsService = AppServices.instance.projects;
   final TaskService _tasksService = AppServices.instance.tasks;
+  final WorkspaceService _workspaceService = AppServices.instance.workspace;
 
   final List<Map<String, dynamic>> projects = [];
   final List<Map<String, dynamic>> members = [];
   final List<Map<String, dynamic>> tasks = [];
 
+  /// Dự án người dùng đã ẩn khỏi Home (lưu ở `users/{uid}.hiddenProjectIds`).
+  final Set<String> hiddenProjectIds = {};
+
+  /// Lịch họp nhóm của mọi dự án tôi tham gia (đã chuẩn hóa `startsAt`/`endsAt`).
+  final List<Map<String, dynamic>> meetings = [];
+
   StreamSubscription? _projectsSub;
+  StreamSubscription? _hiddenSub;
   final Map<String, StreamSubscription> _memberSubs = {};
   final Map<String, StreamSubscription> _taskSubs = {};
+  final Map<String, StreamSubscription> _meetingSubs = {};
 
   /// Lỗi mới nhất từ một stream Firestore; null khi mọi thứ bình thường.
   String? lastError;
@@ -43,6 +52,59 @@ class TaskStore extends ChangeNotifier {
         _onStreamError(error);
       },
     );
+    _listenHidden();
+  }
+
+  void _listenHidden() {
+    final uid = currentUserId;
+    if (uid.isEmpty || _hiddenSub != null) return;
+    _hiddenSub = AppServices.instance.firestore
+        .collection('users')
+        .doc(uid)
+        .snapshots()
+        .listen((snapshot) {
+          final raw = snapshot.data()?['hiddenProjectIds'];
+          final ids = raw is List
+              ? raw.map((e) => e.toString()).toSet()
+              : <String>{};
+          if (ids.length == hiddenProjectIds.length &&
+              ids.containsAll(hiddenProjectIds)) {
+            return;
+          }
+          hiddenProjectIds
+            ..clear()
+            ..addAll(ids);
+          notifyListeners();
+        }, onError: (_) {});
+  }
+
+  bool isProjectHidden(String projectId) =>
+      hiddenProjectIds.contains(projectId);
+
+  /// Ẩn/bỏ ẩn dự án khỏi Home. Cập nhật ngay trên máy rồi mới ghi Firestore;
+  /// ghi lỗi thì hoàn lại trạng thái cũ.
+  Future<void> setProjectHidden(String projectId, bool hidden) async {
+    final uid = currentUserId;
+    if (uid.isEmpty) throw const ServiceException('Bạn chưa đăng nhập.');
+    final changed = hidden
+        ? hiddenProjectIds.add(projectId)
+        : hiddenProjectIds.remove(projectId);
+    if (changed) notifyListeners();
+    try {
+      await AppServices.instance.firestore.collection('users').doc(uid).set({
+        'hiddenProjectIds': hidden
+            ? FieldValue.arrayUnion([projectId])
+            : FieldValue.arrayRemove([projectId]),
+      }, SetOptions(merge: true));
+    } catch (error) {
+      if (hidden) {
+        hiddenProjectIds.remove(projectId);
+      } else {
+        hiddenProjectIds.add(projectId);
+      }
+      notifyListeners();
+      throw ServiceException(errorText(error));
+    }
   }
 
   void _onProjects(List<Map<String, dynamic>> items) {
@@ -70,7 +132,9 @@ class TaskStore extends ChangeNotifier {
         in _memberSubs.keys.where((id) => !ids.contains(id)).toList()) {
       _memberSubs.remove(id)?.cancel();
       _taskSubs.remove(id)?.cancel();
+      _meetingSubs.remove(id)?.cancel();
       tasks.removeWhere((t) => t['projectId'] == id);
+      meetings.removeWhere((m) => m['projectId'] == id);
       members.removeWhere((m) => m['projectId'] == id);
     }
 
@@ -86,6 +150,13 @@ class TaskStore extends ChangeNotifier {
         () => _tasksService
             .watch(projectId: id)
             .listen((rows) => _onTasks(id, rows), onError: _onStreamError),
+      );
+      // Lịch họp chỉ phục vụ màn lịch nên lỗi đọc ở đây không báo lỗi toàn app.
+      _meetingSubs.putIfAbsent(
+        id,
+        () => _workspaceService
+            .watchMeetings(id)
+            .listen((rows) => _onMeetings(id, rows), onError: (_) {}),
       );
     }
   }
@@ -133,6 +204,43 @@ class TaskStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  static final RegExp _meetingLabel = RegExp(
+    r'^(.*?)\s+-\s+(\d{1,2})/(\d{1,2})/(\d{4}),\s*(\d{1,2}):(\d{2})\s*[–-]\s*(\d{1,2}):(\d{2})$',
+  );
+
+  DateTime? _toDate(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value == null) return null;
+    return DateTime.tryParse(value.toString());
+  }
+
+  /// Chuẩn hóa lịch họp: tên cuộc họp (bỏ phần ngày giờ nối vào nhãn) và
+  /// `startsAt`/`endsAt`. Lịch cũ chưa có `startsAt` thì đọc lại từ nhãn.
+  void _onMeetings(String projectId, List<Map<String, dynamic>> rows) {
+    meetings.removeWhere((m) => m['projectId'] == projectId);
+    for (final row in rows) {
+      final label = (row['label'] ?? '').toString().trim();
+      final match = _meetingLabel.firstMatch(label);
+      var start = _toDate(row['startsAt']);
+      var end = _toDate(row['endsAt']);
+      if (start == null && match != null) {
+        int g(int i) => int.parse(match.group(i)!);
+        start = DateTime(g(4), g(3), g(2), g(5), g(6));
+        end = DateTime(g(4), g(3), g(2), g(7), g(8));
+      }
+      if (start == null) continue;
+      meetings.add({
+        ...row,
+        'projectId': projectId,
+        'title': match != null ? match.group(1)!.trim() : label,
+        'startsAt': start.toIso8601String(),
+        'endsAt': end?.toIso8601String(),
+      });
+    }
+    notifyListeners();
+  }
+
   void _onStreamError(Object error) {
     lastError = errorText(error);
     notifyListeners();
@@ -176,17 +284,23 @@ class TaskStore extends ChangeNotifier {
   Future<void> stop() async {
     final subs = <StreamSubscription>[
       if (_projectsSub != null) _projectsSub!,
+      if (_hiddenSub != null) _hiddenSub!,
       ..._memberSubs.values,
       ..._taskSubs.values,
+      ..._meetingSubs.values,
     ];
     _projectsSub = null;
+    _hiddenSub = null;
+    hiddenProjectIds.clear();
     _memberSubs.clear();
     _taskSubs.clear();
+    _meetingSubs.clear();
     projectsLoading = true;
     projectsError = null;
     projects.clear();
     members.clear();
     tasks.clear();
+    meetings.clear();
     lastError = null;
     notifyListeners();
 
@@ -348,9 +462,7 @@ class TaskStore extends ChangeNotifier {
   // 8. GỬI KẾT QUẢ
   // =========================================================
 
-  /// Trả về cảnh báo (nếu có) khi công việc đã hoàn thành nhưng chưa cập nhật
-  /// được mục Tài nguyên của dự án; null nếu mọi thứ ổn.
-  Future<String?> submitTask(String taskId, {String outputLink = ''}) async {
+  Future<void> submitTask(String taskId, {String outputLink = ''}) async {
     final task = _taskById(taskId);
     if (task == null) throw const ServiceException('Không tìm thấy công việc.');
     final link = outputLink.trim();
@@ -362,7 +474,7 @@ class TaskStore extends ChangeNotifier {
         'Công việc này yêu cầu cung cấp kết quả đầu ra.',
       );
     }
-    final result = await _tasksService.transition(
+    await _tasksService.transition(
       task['projectId'].toString(),
       taskId,
       roleInProject(task['projectId'].toString()) == 'Leader'
@@ -370,24 +482,22 @@ class TaskStore extends ChangeNotifier {
           : TaskStatus.pendingReview,
       outputLink: link.isEmpty ? null : link,
     );
-    return result['resourceError']?.toString();
   }
 
   // =========================================================
   // 9. LEADER DUYỆT CÔNG VIỆC
   // =========================================================
 
-  Future<String?> approveTask(String taskId, {String comment = ''}) async {
+  Future<void> approveTask(String taskId, {String comment = ''}) async {
     final task = _taskById(taskId);
     if (task == null) throw const ServiceException('Không tìm thấy công việc.');
     final note = comment.trim();
-    final result = await _tasksService.transition(
+    await _tasksService.transition(
       task['projectId'].toString(),
       taskId,
       TaskStatus.completed,
       comment: note.isEmpty ? null : note,
     );
-    return result['resourceError']?.toString();
   }
 
   // =========================================================
