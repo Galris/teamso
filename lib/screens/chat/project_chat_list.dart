@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/chat_palette.dart';
+import '../../utils/chat_time.dart';
 import '../../widgets/app_widgets.dart';
 
 /// Only receives the signed-in user's real memberships; never supplies demo rooms.
@@ -38,16 +39,8 @@ class _ProjectChatListState extends State<ProjectChatList> {
     return DateTime.tryParse(value?.toString() ?? '')?.toLocal();
   }
 
-  String _time(DateTime? date) {
-    if (date == null) return '';
-    final now = DateTime.now();
-    if (now.year == date.year &&
-        now.month == date.month &&
-        now.day == date.day) {
-      return '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
-    }
-    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}';
-  }
+  String _time(DateTime? date) =>
+      date == null ? '' : conversationTimeLabel(date);
 
   DateTime _sortDate(Map<String, dynamic> project) =>
       _date(widget.previews[project['id'].toString()]?['createdAt']) ??

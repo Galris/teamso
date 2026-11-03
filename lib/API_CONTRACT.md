@@ -15,6 +15,33 @@ All protected endpoints require `Authorization: Bearer <Firebase ID token>`. The
 - `POST /api/projects/:projectId/members` – body `{username}` (leader only).
 - `DELETE /api/projects/:projectId/members/:uid` – remove member (leader only; owner protected).
 - `POST /api/projects/:projectId/leave` – current user leaves (owner cannot leave).
+  - Backend phải, sau khi xóa `projects/{id}/members/{uid}` và chỉ mục `projectMemberships`, gỡ người rời khỏi `assigneeIds` của các task trong dự án và **tạo thông báo cho leader (`ownerId`)** tại `users/{ownerId}/notifications`:
+    `{type: 'member_left', title: 'Thành viên đã rời dự án', body: '<tên> đã rời khỏi dự án <tên dự án>', projectId, projectName, actorName: '<tên>', read: false, createdAt: serverTimestamp()}`.
+    Ví dụ (Express + Admin SDK):
+    ```js
+    router.post('/projects/:projectId/leave', async (req, res) => {
+      const { projectId } = req.params; const uid = req.user.uid;
+      const projectRef = db.doc(`projects/${projectId}`);
+      const project = (await projectRef.get()).data();
+      if (!project) return res.status(404).json({ message: 'Không tìm thấy dự án.' });
+      if (project.ownerId === uid) return res.status(400).json({ message: 'Leader không thể rời dự án.' });
+      const me = (await db.doc(`users/${uid}`).get()).data() || {};
+      const name = me.displayName || me.username || 'Một thành viên';
+      const batch = db.batch();
+      batch.delete(projectRef.collection('members').doc(uid));
+      batch.delete(db.doc(`users/${uid}/projectMemberships/${projectId}`));
+      const tasks = await projectRef.collection('tasks').where('assigneeIds', 'array-contains', uid).get();
+      tasks.forEach((t) => batch.update(t.ref, { assigneeIds: FieldValue.arrayRemove(uid) }));
+      batch.set(db.collection(`users/${project.ownerId}/notifications`).doc(), {
+        type: 'member_left', title: 'Thành viên đã rời dự án',
+        body: `${name} đã rời khỏi dự án ${project.name}`,
+        projectId, projectName: project.name, actorName: name,
+        read: false, createdAt: FieldValue.serverTimestamp(),
+      });
+      await batch.commit();
+      res.json({ ok: true });
+    });
+    ```
 
 ## Tasks
 - `GET /api/projects/:projectId/tasks` – list project tasks.
@@ -47,3 +74,7 @@ Mặc định: Android emulator `http://10.0.2.2:3000/api`, nền tảng khác `
 `flutter run --dart-define=API_BASE_URL=http://<IP-LAN>:3000/api`. Backend phải listen `0.0.0.0`; Android 9+ cần `usesCleartextTraffic` cho HTTP (hoặc dùng HTTPS).
 
 Writes update Firestore documents/subcollections. Firestore listeners on Flutter refresh Home, Project Detail, Task Board and member lists automatically. Notification endpoints and FCM are intentionally outside this scope.
+
+
+## Ẩn dự án khỏi Home
+Lưu ở Firestore `users/{uid}.hiddenProjectIds` (mảng id dự án), Flutter ghi trực tiếp bằng `set(..., merge)` + `arrayUnion/arrayRemove`. Firestore rules phải cho chủ tài khoản ghi trường này, ví dụ: `allow update: if request.auth.uid == uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hiddenProjectIds']);` (gộp với rule hiện có của `users/{uid}`).

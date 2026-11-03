@@ -11,6 +11,7 @@ const Color _pink = Color(0xFFF472B6);
 const Color _darkPurple = Color(0xFF4D4379);
 const Color _blue = Color(0xFF4285F4);
 const Color _amber = Color(0xFFDB9B18);
+const Color _meetingColor = Color(0xFF14A0A0);
 const Color _red = Color(0xFFD64550);
 const Color _textPrimary = Color(0xFF282638);
 const Color _textSecondary = Color(0xFF858397);
@@ -37,18 +38,28 @@ DateTime? _dueOf(Map<String, dynamic> task) {
   return parsed?.toLocal();
 }
 
+DateTime? _meetingTime(Map<String, dynamic> meeting, String key) {
+  final raw = meeting[key]?.toString() ?? '';
+  if (raw.isEmpty) return null;
+  return DateTime.tryParse(raw)?.toLocal();
+}
+
+String _hhmm(DateTime d) =>
+    '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+
 String _fmtDate(DateTime d) =>
     '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
 
-/// Lịch deadline: lấy dữ liệu trực tiếp từ danh sách task (đã realtime qua
-/// TaskStore). Mỗi ngày có hạn được đánh dấu chấm màu; bấm vào ngày để xem
-/// danh sách task, bấm vào task để xem chú thích chi tiết.
+/// Lịch chỉ gồm hai loại mục, lấy realtime từ TaskStore: deadline của các đầu
+/// việc và lịch họp nhóm. Mỗi ngày có mục được đánh dấu chấm màu; bấm vào ngày
+/// để xem danh sách, bấm vào từng mục để xem chi tiết.
 class TaskCalendarView extends StatefulWidget {
   const TaskCalendarView({
     super.key,
     required this.store,
     required this.myTasks,
     required this.teamTasks,
+    required this.meetings,
   });
 
   final TaskStore store;
@@ -58,6 +69,9 @@ class TaskCalendarView extends StatefulWidget {
 
   /// Mọi task trong các dự án tôi tham gia.
   final List<Map<String, dynamic>> teamTasks;
+
+  /// Lịch họp nhóm của mọi dự án tôi tham gia (hiện ở cả hai chế độ xem).
+  final List<Map<String, dynamic>> meetings;
 
   @override
   State<TaskCalendarView> createState() => _TaskCalendarViewState();
@@ -97,6 +111,23 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
       final due = _dueOf(task);
       if (due == null) continue;
       map.putIfAbsent(_dayOf(due), () => []).add(task);
+    }
+    return map;
+  }
+
+  Map<DateTime, List<Map<String, dynamic>>> _meetingsByDay() {
+    final map = <DateTime, List<Map<String, dynamic>>>{};
+    for (final meeting in widget.meetings) {
+      final start = _meetingTime(meeting, 'startsAt');
+      if (start == null) continue;
+      map.putIfAbsent(_dayOf(start), () => []).add(meeting);
+    }
+    for (final list in map.values) {
+      list.sort(
+        (a, b) => _meetingTime(a, 'startsAt')!.compareTo(
+          _meetingTime(b, 'startsAt')!,
+        ),
+      );
     }
     return map;
   }
@@ -166,6 +197,8 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
   @override
   Widget build(BuildContext context) {
     final byDay = _groupByDay();
+    final meetByDay = _meetingsByDay();
+    final selectedMeetings = meetByDay[_selected] ?? const <Map<String, dynamic>>[];
     final selectedTasks = [...?byDay[_selected]]
       ..sort((a, b) {
         final da = _dueOf(a) ?? _selected;
@@ -180,6 +213,12 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
           due.month == _month.month;
     }).toList();
     final overdueCount = monthTasks.where(_isOverdue).length;
+    final monthMeetings = widget.meetings.where((m) {
+      final start = _meetingTime(m, 'startsAt');
+      return start != null &&
+          start.year == _month.year &&
+          start.month == _month.month;
+    }).length;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
@@ -213,7 +252,7 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
               const SizedBox(height: 4),
               _buildWeekdayRow(),
               const SizedBox(height: 4),
-              _buildGrid(byDay),
+              _buildGrid(byDay, meetByDay),
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(12),
@@ -231,13 +270,22 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
           children: [
             Expanded(
               child: _summary(
-                'Trong tháng',
+                'Lịch họp',
+                monthMeetings,
+                Icons.groups_2_outlined,
+                _meetingColor,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _summary(
+                'Deadline',
                 monthTasks.length,
                 Icons.event_note_rounded,
                 _purple,
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
               child: _summary(
                 'Quá hạn',
@@ -249,15 +297,20 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
           ],
         ),
         const SizedBox(height: 16),
-        _buildSelectedHeader(selectedTasks.length),
+        _buildSelectedHeader(selectedMeetings.length, selectedTasks.length),
         const SizedBox(height: 10),
-        if (selectedTasks.isEmpty)
+        if (selectedMeetings.isEmpty && selectedTasks.isEmpty)
           _buildEmptyDay()
-        else
+        else ...[
+          for (final meeting in selectedMeetings) ...[
+            _buildMeetingTile(meeting),
+            const SizedBox(height: 10),
+          ],
           for (final task in selectedTasks) ...[
             _buildTaskTile(task),
             const SizedBox(height: 10),
           ],
+        ],
         if (noDeadline > 0)
           Padding(
             padding: const EdgeInsets.only(top: 6),
@@ -272,34 +325,34 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
 
   Widget _summary(String label, int count, IconData icon, Color color) =>
       Container(
-        padding: const EdgeInsets.all(15),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 13),
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: .85),
           borderRadius: BorderRadius.circular(21),
         ),
-        child: Row(
+        child: Column(
           children: [
-            Icon(icon, size: 21, color: color),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '$count',
-                    style: TextStyle(
-                      fontSize: 23,
-                      fontWeight: FontWeight.w700,
-                      color: color,
-                    ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 19, color: color),
+                const SizedBox(width: 6),
+                Text(
+                  '$count',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    color: color,
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    label,
-                    style: const TextStyle(fontSize: 12, color: _textSecondary),
-                  ),
-                ],
-              ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, color: _textSecondary),
             ),
           ],
         ),
@@ -404,7 +457,10 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
     ],
   );
 
-  Widget _buildGrid(Map<DateTime, List<Map<String, dynamic>>> byDay) {
+  Widget _buildGrid(
+    Map<DateTime, List<Map<String, dynamic>>> byDay,
+    Map<DateTime, List<Map<String, dynamic>>> meetByDay,
+  ) {
     final first = DateTime(_month.year, _month.month);
     // Thứ Hai là cột đầu tiên: DateTime.monday == 1.
     final leading = first.weekday - DateTime.monday;
@@ -424,6 +480,7 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
                   child: _buildDayCell(
                     DateTime(start.year, start.month, start.day + r * 7 + c),
                     byDay,
+                    meetByDay,
                     today,
                   ),
                 ),
@@ -436,13 +493,19 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
   Widget _buildDayCell(
     DateTime day,
     Map<DateTime, List<Map<String, dynamic>>> byDay,
+    Map<DateTime, List<Map<String, dynamic>>> meetByDay,
     DateTime today,
   ) {
     final inMonth = day.month == _month.month;
     final isToday = day == today;
     final isSelected = day == _selected;
     final tasks = byDay[day] ?? const <Map<String, dynamic>>[];
-    final dots = tasks.take(3).map(_taskColor).toList();
+    final meetings = meetByDay[day] ?? const <Map<String, dynamic>>[];
+    final allDots = [
+      for (final _ in meetings) _meetingColor,
+      for (final task in tasks) _taskColor(task),
+    ];
+    final dots = allDots.take(3).toList();
 
     return InkWell(
       borderRadius: BorderRadius.circular(12),
@@ -504,9 +567,9 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
                         shape: BoxShape.circle,
                       ),
                     ),
-                  if (tasks.length > 3)
+                  if (allDots.length > 3)
                     Text(
-                      '+${tasks.length - 3}',
+                      '+${allDots.length - 3}',
                       style: const TextStyle(
                         fontSize: 8,
                         height: 1,
@@ -544,6 +607,7 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
       spacing: 12,
       runSpacing: 4,
       children: [
+        item(_meetingColor, 'Lịch họp'),
         item(_textSecondary, 'Cần làm'),
         item(_blue, 'Đang làm'),
         item(_amber, 'Chờ duyệt'),
@@ -554,7 +618,7 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
     );
   }
 
-  Widget _buildSelectedHeader(int count) {
+  Widget _buildSelectedHeader(int meetingCount, int taskCount) {
     final weekday = _weekdayLong[_selected.weekday - 1];
     final today = _dayOf(DateTime.now());
     final suffix = _selected == today ? ' · Hôm nay' : '';
@@ -573,7 +637,7 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
           ),
         ),
         Text(
-          '$count công việc',
+          '$meetingCount họp · $taskCount deadline',
           style: const TextStyle(color: _textSecondary, fontSize: 12),
         ),
       ],
@@ -594,10 +658,185 @@ class _TaskCalendarViewState extends State<TaskCalendarView> {
           Icon(Icons.event_available_rounded, size: 36, color: _purple),
           SizedBox(height: 8),
           Text(
-            'Ngày này chưa có deadline',
+            'Ngày này chưa có lịch họp hay deadline',
             style: TextStyle(color: _textSecondary),
           ),
         ],
+      ),
+    );
+  }
+
+  String _meetingStatus(DateTime start, DateTime? end) {
+    final now = DateTime.now();
+    if (now.isBefore(start)) return 'Sắp họp';
+    if (end != null && now.isAfter(end)) return 'Đã họp';
+    return end == null ? 'Đã họp' : 'Đang họp';
+  }
+
+  String _meetingTimeRange(DateTime start, DateTime? end) =>
+      end == null ? _hhmm(start) : '${_hhmm(start)} – ${_hhmm(end)}';
+
+  Widget _buildMeetingTile(Map<String, dynamic> meeting) {
+    final start = _meetingTime(meeting, 'startsAt')!;
+    final end = _meetingTime(meeting, 'endsAt');
+    final status = _meetingStatus(start, end);
+    final color = status == 'Đã họp' ? _textSecondary : _meetingColor;
+    final project = widget.store.projectById(
+      meeting['projectId']?.toString() ?? '',
+    );
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: () => _showMeetingDetail(meeting),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: _border),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 4,
+              height: 42,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Icon(Icons.groups_2_outlined, size: 22, color: color),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    meeting['title']?.toString() ?? 'Cuộc họp',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: _textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${project?['name'] ?? 'Dự án'} · '
+                    '${_meetingTimeRange(start, end)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, color: _textSecondary),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                status,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showMeetingDetail(Map<String, dynamic> meeting) {
+    final start = _meetingTime(meeting, 'startsAt')!;
+    final end = _meetingTime(meeting, 'endsAt');
+    final project = widget.store.projectById(
+      meeting['projectId']?.toString() ?? '',
+    );
+
+    Widget row(IconData icon, String label, String value) => Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: _textSecondary),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 82,
+            child: Text(
+              label,
+              style: const TextStyle(color: _textSecondary, fontSize: 13),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: _textPrimary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      builder: (sheetContext) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                meeting['title']?.toString() ?? 'Cuộc họp',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: _textPrimary,
+                ),
+              ),
+              const SizedBox(height: 16),
+              row(
+                Icons.folder_open_rounded,
+                'Dự án',
+                project?['name']?.toString() ?? 'Dự án',
+              ),
+              row(
+                Icons.event_rounded,
+                'Ngày họp',
+                '${_weekdayLong[start.weekday - 1]}, ${_fmtDate(start)}',
+              ),
+              row(
+                Icons.schedule_rounded,
+                'Thời gian',
+                _meetingTimeRange(start, end),
+              ),
+              const SizedBox(height: 6),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.of(sheetContext).pop(),
+                  child: const Text('Đóng'),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

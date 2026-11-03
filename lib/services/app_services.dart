@@ -39,11 +39,6 @@ class AppServices {
     api: api,
   );
 
-  late final ResourceService resources = ResourceService(
-    firestore: firestore,
-    auth: auth,
-  );
-
   // Giữ các service vốn đã tồn tại; không tạo WorkspaceService mới.
   late final ChatService chat = ChatService(
     firestore: firestore,

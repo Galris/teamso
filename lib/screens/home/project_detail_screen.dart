@@ -45,7 +45,6 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
   StreamSubscription? _projectSubscription;
   StreamSubscription? _taskSubscription;
   StreamSubscription? _memberSubscription;
-  StreamSubscription? _resourceSubscription;
 
   String _taskFilter = 'Tất cả';
   String _taskQuery = '';
@@ -56,15 +55,13 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
   Map<String, dynamic>? _project;
   List<Map<String, dynamic>> _tasks = [];
   List<Map<String, dynamic>> _members = [];
-  List<Map<String, dynamic>> _resources = [];
-  String? _resourcesError;
 
   String get _currentUserId => _currentUserIdFromProject();
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 2, vsync: this);
     _listenRealtime();
   }
 
@@ -79,8 +76,6 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
     _projectSubscription?.cancel();
     _taskSubscription?.cancel();
     _memberSubscription?.cancel();
-    _resourceSubscription?.cancel();
-    _resourceSubscription = null;
     _projectSubscription = null;
     _taskSubscription = null;
     _memberSubscription = null;
@@ -142,22 +137,6 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
           },
           onError: (Object error) {
             if (mounted) setState(() => _error = errorText(error));
-          },
-        );
-    // Lỗi tài nguyên (ví dụ thiếu quyền đọc) chỉ hiện trong tab Tài nguyên,
-    // không làm hỏng cả màn hình dự án.
-    _resourceSubscription = AppServices.instance.resources
-        .watch(widget.projectId)
-        .listen(
-          (rows) {
-            if (!mounted) return;
-            setState(() {
-              _resources = rows;
-              _resourcesError = null;
-            });
-          },
-          onError: (Object error) {
-            if (mounted) setState(() => _resourcesError = errorText(error));
           },
         );
   }
@@ -522,28 +501,19 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
       _message('Task không có ID hợp lệ.');
       return;
     }
-    String? warning;
     await _runAction(
       () async {
-        final updated = await _taskService.transition(
+        await _taskService.transition(
           widget.projectId,
           id,
           _isLeader && _isMyTask(task) ? 'completed' : 'pending_review',
           outputLink: result,
         );
-        warning = updated['resourceError']?.toString();
       },
       successMessage: _isLeader
           ? 'Đã cập nhật kết quả công việc.'
           : 'Đã gửi công việc để Leader duyệt.',
     );
-    _warnResource(warning);
-  }
-
-  /// Công việc đã hoàn thành nhưng chưa ghi được vào Tài nguyên.
-  void _warnResource(String? warning) {
-    if (warning == null || !mounted) return;
-    _message('Đã hoàn thành nhưng chưa cập nhật được Tài nguyên: $warning');
   }
 
   Future<void> _reviewTask(
@@ -571,22 +541,19 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
       _message('Task không có ID hợp lệ.');
       return;
     }
-    String? warning;
     await _runAction(
       () async {
-        final updated = await _taskService.transition(
+        await _taskService.transition(
           widget.projectId,
           id,
           approve ? 'completed' : 'revision_required',
           comment: comment,
         );
-        warning = updated['resourceError']?.toString();
       },
       successMessage: approve
           ? 'Đã duyệt công việc.'
           : 'Đã gửi yêu cầu chỉnh sửa.',
     );
-    _warnResource(warning);
   }
 
   Future<void> _openLink(String rawLink) async {
@@ -1112,126 +1079,6 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
     );
   }
 
-  String _resourceSubtitle(Map<String, dynamic> resource) {
-    final url = _stringValue(resource, const ['url']);
-    final who = _stringValue(resource, const ['uploadedBy']);
-    final created = resource['createdAt'];
-    final parts = <String>[
-      if (url.isNotEmpty) url else 'Chưa có đường dẫn',
-      if (who.isNotEmpty) 'Bởi ${_memberName(who)}',
-      if (created is Timestamp) _formatDate(created.toDate().toIso8601String()),
-    ];
-    return parts.join(' • ');
-  }
-
-  IconData _resourceIcon(Map<String, dynamic> resource) {
-    final url = _stringValue(resource, const ['url']).toLowerCase();
-    if (url.contains('docs.google.com/spreadsheets')) {
-      return Icons.table_chart_outlined;
-    }
-    if (url.contains('docs.google.com') || url.contains('/document/')) {
-      return Icons.description_outlined;
-    }
-    if (url.contains('drive.google.com')) return Icons.folder_outlined;
-    return Icons.link_rounded;
-  }
-
-  Widget _buildResources() {
-    final Widget content;
-    if (_resourcesError != null) {
-      content = ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(24),
-        children: [
-          const SizedBox(height: 80),
-          const Icon(
-            Icons.lock_outline_rounded,
-            size: 48,
-            color: _textSecondary,
-          ),
-          const SizedBox(height: 12),
-          const Center(
-            child: Text(
-              'Không tải được tài nguyên',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _resourcesError!,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: _textSecondary),
-          ),
-        ],
-      );
-    } else if (_resources.isEmpty) {
-      content = ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        children: const [
-          SizedBox(height: 120),
-          Icon(Icons.folder_open_rounded, size: 52, color: Color(0xFFD0CEDC)),
-          SizedBox(height: 12),
-          Center(
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 32),
-              child: Text(
-                'Chưa có tài nguyên. Khi một công việc có đường dẫn kết quả được '
-                'hoàn thành, nó sẽ tự động xuất hiện ở đây.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: _textSecondary, height: 1.4),
-              ),
-            ),
-          ),
-        ],
-      );
-    } else {
-      content = ListView.separated(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
-        itemCount: _resources.length + 1,
-        separatorBuilder: (_, _) => const SizedBox(height: 10),
-        itemBuilder: (context, index) {
-          if (index == 0) {
-            return _section(
-              'Tài nguyên',
-              '${_resources.length} tài liệu và liên kết kết quả',
-            );
-          }
-          final resource = _resources[index - 1];
-          final url = _stringValue(resource, const ['url']);
-          return Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: const Color(0xFFECEBF2)),
-            ),
-            child: ListTile(
-              leading: CircleAvatar(
-                backgroundColor: teamUpPurple.withValues(alpha: 0.13),
-                child: Icon(_resourceIcon(resource), color: teamUpDarkPurple),
-              ),
-              title: Text(
-                _stringValue(resource, const ['name'], fallback: 'Tài nguyên'),
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              subtitle: Text(
-                _resourceSubtitle(resource),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12),
-              ),
-              trailing: url.isEmpty
-                  ? null
-                  : const Icon(Icons.open_in_new_rounded, size: 18),
-              onTap: url.isEmpty ? null : () => _openLink(url),
-            ),
-          );
-        },
-      );
-    }
-    return RefreshIndicator(onRefresh: _loadPage, child: content);
-  }
-
   Widget _buildTasks() {
     final rows = _tasks
         .where(
@@ -1656,7 +1503,6 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
           tabs: const [
             Tab(text: 'Tổng quan'),
             Tab(text: 'Công việc'),
-            Tab(text: 'Tài nguyên'),
           ],
         ),
       ),
@@ -1709,7 +1555,6 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
                   children: [
                     _buildOverview(project),
                     _buildTasks(),
-                    _buildResources(),
                   ],
                 ),
                 if (_busy)

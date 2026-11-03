@@ -12,6 +12,7 @@ import '../../controllers/session_controller.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/chat_palette.dart';
 import '../../services/service_errors.dart';
+import '../../utils/chat_time.dart';
 import '../../widgets/app_widgets.dart';
 import '../../widgets/auth_widgets.dart';
 import '../tasks/task_store.dart';
@@ -65,7 +66,7 @@ class _ChatMessage {
       sender: (doc['senderName'] ?? '').toString(),
       senderId: senderId,
       content: (doc['content'] ?? '').toString(),
-      time: created == null ? '' : _hhmm(created.toLocal()),
+      time: created == null ? '' : messageTimeLabel(created),
       type: type,
       date: created?.toLocal(),
     );
@@ -76,9 +77,6 @@ class _ChatMessage {
     if (value is DateTime) return value;
     return DateTime.tryParse(value?.toString() ?? '');
   }
-
-  static String _hhmm(DateTime t) =>
-      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 }
 
 class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
@@ -880,20 +878,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 date.year != prevDate.year ||
                 date.month != prevDate.month ||
                 date.day != prevDate.day);
-        final now = DateTime.now();
         return Column(
           children: [
             if (showDate)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 18),
                 child: Chip(
-                  label: Text(
-                    date.year == now.year &&
-                            date.month == now.month &&
-                            date.day == now.day
-                        ? 'Hôm nay'
-                        : '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}',
-                  ),
+                  label: Text(daySeparatorLabel(date)),
                   backgroundColor: const Color(0xFFE3D7F5),
                   side: BorderSide.none,
                 ),

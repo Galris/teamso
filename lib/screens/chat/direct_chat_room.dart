@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../controllers/session_controller.dart';
 import '../../core/theme/chat_palette.dart';
 import '../../services/service_errors.dart';
+import '../../utils/chat_time.dart';
 import '../../widgets/auth_widgets.dart';
 
 class DirectChatRoom extends StatefulWidget {
@@ -236,7 +237,7 @@ class _DirectChatRoomState extends State<DirectChatRoom>
                                   Padding(
                                     padding: const EdgeInsets.only(top: 5),
                                     child: Text(
-                                      '${date.day}/${date.month} · ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}',
+                                      messageTimeLabel(date),
                                       style: const TextStyle(
                                         fontSize: 11,
                                         color: Colors.black54,

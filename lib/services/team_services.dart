@@ -562,11 +562,6 @@ class ProjectService extends _FirestoreService {
 class TaskService extends _FirestoreService {
   TaskService({super.firestore, super.auth, super.api});
 
-  late final ResourceService _resources = ResourceService(
-    firestore: _db,
-    auth: _auth,
-  );
-
   CollectionReference<Map<String, dynamic>> _tasksOf(String projectId) =>
       _projects.doc(projectId).collection('tasks');
 
@@ -814,33 +809,11 @@ class TaskService extends _FirestoreService {
       () => _api.patch('/projects/$projectId/tasks/$taskId', body: data),
     );
 
-    // Hoàn thành công việc có link kết quả -> cập nhật Tài nguyên của dự án.
-    String? resourceError;
-    final finalStatus = nextStatus ?? oldStatus;
-    final link = '${data['outputLink'] ?? old['outputLink'] ?? ''}'.trim();
-    if (finalStatus == TaskStatus.completed &&
-        (nextStatus == TaskStatus.completed ||
-            data.containsKey('outputLink')) &&
-        link.isNotEmpty) {
-      try {
-        await _resources.upsertFromTask(
-          projectId: projectId,
-          taskId: taskId,
-          title: '${old['title'] ?? 'Công việc'}',
-          url: link,
-          uploadedBy: assignees.isNotEmpty ? assignees.first : uid,
-        );
-      } catch (error) {
-        resourceError = errorText(error);
-      }
-    }
-
     return {
       ...old,
       ...data,
       'id': taskId,
       'projectId': projectId,
-      if (resourceError != null) 'resourceError': resourceError,
     };
   }
 
@@ -860,48 +833,6 @@ class TaskService extends _FirestoreService {
   Future<void> delete(String projectId, String taskId) async {
     _requireUid();
     await _guard(() => _api.delete('/projects/$projectId/tasks/$taskId'));
-  }
-}
-
-/// Tài nguyên của dự án: `projects/{id}/resources/{resourceId}` với các trường
-/// name, type, url, uploadedBy, createdAt (+ taskId khi sinh từ công việc).
-class ResourceService extends _FirestoreService {
-  ResourceService({super.firestore, super.auth});
-
-  CollectionReference<Map<String, dynamic>> _resourcesOf(String projectId) =>
-      _projects.doc(projectId).collection('resources');
-
-  /// Danh sách tài nguyên, mới nhất trước, cập nhật realtime.
-  Stream<List<Map<String, dynamic>>> watch(String projectId) =>
-      _resourcesOf(projectId).snapshots().map(
-        (snapshot) => snapshot.docs.map((doc) => _docMap(doc)).toList()
-          ..sort(
-            (a, b) => _stamp(b['createdAt']).compareTo(_stamp(a['createdAt'])),
-          ),
-      );
-
-  /// Ghi (hoặc cập nhật) tài nguyên sinh từ một công việc đã hoàn thành.
-  /// Document ID cố định `task_{taskId}` nên gọi lặp lại không tạo bản trùng.
-  Future<void> upsertFromTask({
-    required String projectId,
-    required String taskId,
-    required String title,
-    required String url,
-    String? uploadedBy,
-  }) async {
-    final uid = _requireUid();
-    final link = url.trim();
-    if (link.isEmpty) return;
-    await _guard(
-      () => _resourcesOf(projectId).doc('task_$taskId').set({
-        'name': title.trim().isEmpty ? 'Công việc' : title.trim(),
-        'type': 'link',
-        'url': link,
-        'uploadedBy': (uploadedBy ?? '').isEmpty ? uid : uploadedBy,
-        'taskId': taskId,
-        'createdAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true)),
-    );
   }
 }
 
