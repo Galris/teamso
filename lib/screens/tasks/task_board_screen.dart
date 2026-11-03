@@ -5,12 +5,8 @@ import 'package:flutter/material.dart';
 import '../../widgets/prompt_dialog.dart';
 import 'task_calendar.dart';
 import 'task_store.dart';
+import '../../core/theme/app_colors.dart';
 
-const Color teamUpGreen = Color(0xFF439751);
-const Color teamUpPurple = Color(0xFF867CB3);
-const Color teamUpPink = Color(0xFFF472B6);
-const Color teamUpYellow = Color(0xFFFACC15);
-const Color teamUpDarkPurple = Color(0xFF4D4379);
 
 const Color _textPrimary = Color(0xFF282638);
 const Color _textSecondary = Color(0xFF858397);

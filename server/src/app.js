@@ -220,10 +220,18 @@ export function createApp({messaging} = {}) {
   app.post('/api/projects/:projectId/members', protectedRoute, async (req, res) => {
     await requireLeader(req, req.params.projectId);
     const username = String(req.body?.username ?? '').trim().toLowerCase();
-    if (!username) throw fail(400, 'Vui lòng nhập username.', 'VALIDATION_ERROR');
-    const claim = await db.collection('usernames').doc(username).get();
-    const targetUid = claim.data()?.uid;
-    if (!targetUid) throw fail(404, 'Không tìm thấy username.', 'USER_NOT_FOUND');
+    const requestedUid = String(req.body?.uid ?? '').trim();
+    if (!username && !requestedUid) throw fail(400, 'Vui lòng chọn tài khoản cần thêm.', 'VALIDATION_ERROR');
+    let targetUid = requestedUid;
+    if (targetUid) {
+      if (targetUid.length > 128 || targetUid.includes('/')) throw fail(400, 'Mã tài khoản không hợp lệ.', 'VALIDATION_ERROR');
+      if (!(await db.collection('users').doc(targetUid).get()).exists) throw fail(404, 'Không tìm thấy tài khoản.', 'USER_NOT_FOUND');
+    } else {
+      if (username.includes('/')) throw fail(400, 'Tên đăng nhập không hợp lệ.', 'VALIDATION_ERROR');
+      const claim = await db.collection('usernames').doc(username).get();
+      targetUid = claim.data()?.uid;
+      if (!targetUid) throw fail(404, 'Không tìm thấy username.', 'USER_NOT_FOUND');
+    }
     const mRef = memberRef(req.params.projectId, targetUid);
     const pRef = projectRef(req.params.projectId);
     const jobs = await db.runTransaction(async tx => {
@@ -406,6 +414,40 @@ export function createApp({messaging} = {}) {
     res.json({ message: 'Đã đăng xuất và thu hồi phiên đăng nhập trên tất cả thiết bị.' });
   });
   app.get('/api/users/me', protectedRoute, (req, res) => res.json({ user: req.user }));
+  // Chỉ trả các trường cần cho ô gợi ý; email bị che nên tra không ra cả địa chỉ.
+  const maskEmail = value => {
+    const [local = '', domain = ''] = String(value ?? '').split('@');
+    return domain ? `${local.slice(0, 1)}***@${domain}` : '';
+  };
+  const suggestProfile = (uid, data) => ({
+    uid,
+    username: data.username ?? '',
+    displayName: data.displayName ?? data.username ?? '',
+    avatarUrl: data.avatarUrl ?? '',
+    email: maskEmail(data.email),
+  });
+  const suggestLimit = rateLimit({ windowMs: 60000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false,
+    handler: (_req, res) => res.status(429).json({ code: 'RATE_LIMIT', message: 'Bạn tìm kiếm quá nhanh. Vui lòng thử lại sau ít phút.' }) });
+  app.get('/api/users/suggest', protectedRoute, suggestLimit, async (req, res) => {
+    const term = String(req.query?.q ?? '').trim().toLowerCase();
+    if (term.length < 2) throw fail(400, 'Cần nhập ít nhất 2 ký tự để tìm tài khoản.', 'VALIDATION_ERROR');
+    if (term.length > 60) throw fail(400, 'Nội dung tìm kiếm quá dài.', 'VALIDATION_ERROR');
+    const [low, high] = [term, `${term}\uf8ff`];
+    const found = await Promise.all([
+      db.collection('users').where('username', '>=', low).where('username', '<=', high).limit(8).get(),
+      db.collection('users').where('email', '>=', low).where('email', '<=', high).limit(8).get(),
+    ]);
+    const seen = new Set([req.uid]);
+    const users = [];
+    for (const snapshot of found) {
+      for (const doc of snapshot.docs) {
+        if (users.length >= 8 || seen.has(doc.id)) continue;
+        seen.add(doc.id);
+        users.push(suggestProfile(doc.id, doc.data()));
+      }
+    }
+    res.json({ users });
+  });
   app.put('/api/users/profile', protectedRoute, async (req, res) => {
     const fields = validate(profileSchema, req);
     // Profile is authoritative in Firestore. Never accept roles/username/email here.

@@ -478,6 +478,28 @@ class ProjectService extends _FirestoreService {
     );
   }
 
+  /// Tìm tài khoản theo tiền tố username (hoặc email khi có '@') để mời vào
+  /// dự án. `username`/`email` luôn được lưu chữ thường nên so khớp trực tiếp.
+  /// Lưu ý: cần Firestore rules cho phép người đã đăng nhập đọc `users`.
+  Future<List<Map<String, dynamic>>> searchAccounts(String term) async {
+    final uid = _requireUid();
+    final text = term.trim().toLowerCase().replaceFirst(RegExp(r'^@'), '');
+    if (text.length < 2) return const [];
+    final field = text.contains('@') ? 'email' : 'username';
+    final snapshot = await _guard(
+      () => _users
+          .where(field, isGreaterThanOrEqualTo: text)
+          .where(field, isLessThanOrEqualTo: '$text\uf8ff')
+          .orderBy(field)
+          .limit(8)
+          .get(),
+    );
+    return snapshot.docs
+        .where((doc) => doc.id != uid)
+        .map((doc) => <String, dynamic>{...doc.data(), 'uid': doc.id})
+        .toList();
+  }
+
   Future<void> removeMember(String projectId, String memberUid) async {
     _requireUid();
     await _guard(() => _api.delete('/projects/$projectId/members/$memberUid'));
@@ -1069,6 +1091,7 @@ class WorkspaceService extends _FirestoreService {
         final counts = List<int>.filled(options.length, 0);
 
         final myVotes = <int>[];
+        final voters = <Map<String, dynamic>>[];
         var totalParticipants = 0;
 
         for (final ballot in ballots) {
@@ -1098,6 +1121,13 @@ class WorkspaceService extends _FirestoreService {
             counts[index]++;
           }
 
+          if (selected.isNotEmpty) {
+            voters.add({
+              'uid': (ballot['id'] ?? '').toString(),
+              'options': selected.toList()..sort(),
+            });
+          }
+
           if (ballot['id'] == uid) {
             myVotes.addAll(selected);
           }
@@ -1110,6 +1140,7 @@ class WorkspaceService extends _FirestoreService {
           'counts': counts,
           'totalVotes': totalParticipants,
           'myVotes': myVotes,
+          'voters': voters,
         });
       }
 
@@ -1244,17 +1275,21 @@ class WorkspaceService extends _FirestoreService {
     );
   }
 
+  /// [kind]: 'general' (bình chọn thường) hoặc 'meeting' (chọn khung giờ rảnh).
+  /// Chỉ gửi `kind` khi khác 'general' để giữ tương thích backend cũ.
   Future<void> addVote(
     String projectId,
     String question,
-    List<String> options,
-  ) async {
+    List<String> options, {
+    String kind = 'general',
+  }) async {
     await _guard(
       () => _api.post(
         _path(projectId, 'votes'),
         body: {
           'question': question.trim(),
           'options': options.map((v) => v.trim()).toList(),
+          if (kind != 'general') 'kind': kind,
         },
       ),
     );
