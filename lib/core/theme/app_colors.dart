@@ -25,6 +25,7 @@ abstract final class AppColors {
   static const pinkSoft = Color(0xFFFDEBF5);
   static const greenSoft = Color(0xFFEAF5EC);
   static const yellowSoft = Color(0xFFFFF6D6);
+  static const pageHeader = Color(0xFF8371D0);
   static const pageTint = Color(0xFFF7F7FB);
 
   /// Gradient thương hiệu: tím -> hồng -> xanh lá.

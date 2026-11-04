@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
-const chatHeaderColor = Color(0xFF8D7ABD);
+import '../../core/theme/app_colors.dart';
+
+const chatHeaderColor = AppColors.pageHeader;
 
 /// Rounded content sheet shared by the conversation list and message rooms.
 class ChatPanel extends StatelessWidget {
