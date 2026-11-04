@@ -803,6 +803,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       },
                       previewErrors: _previewErrors,
                       currentUserId: widget.session?.auth.currentUserId ?? '',
+                      onCreate: _newConversation,
+                      creating: _startingChat,
                       loading: store.projectsLoading,
                       error: store.projectsError,
                       onSelected: (id) {
@@ -821,22 +823,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     ),
                   ),
                 ],
-              ),
-            ),
-            Positioned(
-              right: 16,
-              bottom: 18,
-              child: FilledButton.icon(
-                onPressed: _startingChat ? null : _newConversation,
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 16,
-                  ),
-                  elevation: 4,
-                ),
-                icon: const Icon(Icons.add_comment_outlined),
-                label: Text(_startingChat ? 'Đang mở…' : 'Trò chuyện mới'),
               ),
             ),
           ],

@@ -1066,12 +1066,17 @@ class WorkspaceService extends _FirestoreService {
 
         myVotes.sort();
 
+        // Bình chọn ẩn danh: chỉ giữ tổng phiếu và lựa chọn của chính mình.
+        final anonymous = vote['anonymous'] == true;
+
         rows.add({
           ...vote,
           'counts': counts,
           'totalVotes': totalParticipants,
           'myVotes': myVotes,
-          'voters': voters,
+          'voters': anonymous
+              ? voters.where((v) => v['uid'] == uid).toList()
+              : voters,
         });
       }
 
@@ -1191,6 +1196,7 @@ class WorkspaceService extends _FirestoreService {
   Future<void> addMeeting(
     String projectId,
     String label, {
+    required String url,
     required DateTime startsAt,
     required DateTime endsAt,
   }) async {
@@ -1199,6 +1205,7 @@ class WorkspaceService extends _FirestoreService {
         _path(projectId, 'meetings'),
         body: {
           'label': label.trim(),
+          'meetUrl': _requiredUrl(url),
           'startsAt': startsAt.toUtc().toIso8601String(),
           'endsAt': endsAt.toUtc().toIso8601String(),
         },
@@ -1213,6 +1220,9 @@ class WorkspaceService extends _FirestoreService {
     String question,
     List<String> options, {
     String kind = 'general',
+    DateTime? deadline,
+    bool multiple = false,
+    bool anonymous = false,
   }) async {
     await _guard(
       () => _api.post(
@@ -1221,6 +1231,42 @@ class WorkspaceService extends _FirestoreService {
           'question': question.trim(),
           'options': options.map((v) => v.trim()).toList(),
           if (kind != 'general') 'kind': kind,
+          if (kind == 'general') ...{
+            'multiple': multiple,
+            'anonymous': anonymous,
+            if (deadline != null)
+              'deadline': deadline.toUtc().toIso8601String(),
+          },
+        },
+      ),
+    );
+  }
+
+  /// Sửa bình chọn có sẵn (không tạo mới).
+  ///
+  /// [indexMap] cho từng phương án mới: chỉ số cũ được giữ (để backend chuyển
+  /// phiếu sang vị trí mới) hoặc null nếu là phương án mới. Phương án cũ không
+  /// nằm trong [indexMap] bị xóa cùng phiếu của nó.
+  Future<void> updateVote(
+    String projectId,
+    String voteId, {
+    String? question,
+    List<String>? options,
+    List<int?>? indexMap,
+    bool deadlineChanged = false,
+    DateTime? deadline,
+  }) async {
+    await _guard(
+      () => _api.patch(
+        '${_path(projectId, 'votes')}/$voteId',
+        body: {
+          if (question != null) 'question': question.trim(),
+          if (options != null) ...{
+            'options': options.map((v) => v.trim()).toList(),
+            'indexMap': indexMap,
+          },
+          if (deadlineChanged)
+            'deadline': deadline?.toUtc().toIso8601String(),
         },
       ),
     );
@@ -1254,6 +1300,14 @@ class WorkspaceService extends _FirestoreService {
         body: {'options': selectedOptions.toSet().toList()..sort()},
       ),
     );
+  }
+
+  static String _requiredUrl(String value) {
+    final text = _validatedUrl(value);
+    if (text.isEmpty) {
+      throw const ServiceException('Vui lòng nhập link cuộc họp.');
+    }
+    return text;
   }
 
   static String _validatedUrl(String value) {

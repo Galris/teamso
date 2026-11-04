@@ -80,6 +80,27 @@ test('votes: multi-select, replacement, withdraw, range, unauthorized access and
   await api('member','put',`/votes/${vote}/ballot`).send({options:[0]}).expect(404);
   assert.equal((await ref.collection('ballots').get()).size,0);
 });
+test('votes persist settings, deadline as a Firestore timestamp and edit remapping', async () => {
+  const future = new Date(Date.now() + 86400000).toISOString(), past = new Date(Date.now() - 86400000).toISOString();
+  for (const body of [{ question: 'Q', options: ['A', 'B'], multiple: 'yes' }, { question: 'Q', options: ['A', 'B'], deadline: '05/11/2026' }, { question: 'Q', options: ['A', 'B'], mutiple: true }]) await api('member', 'post', '/votes').send(body).expect(400);
+  const vote = (await api('member', 'post', '/votes').send({ question: 'Chọn đáp án', options: ['A', 'B', 'C'], multiple: true, anonymous: true, deadline: future }).expect(201)).body.id;
+  const ref = project.collection('votes').doc(vote);
+  const saved = (await ref.get()).data();
+  assert.equal(saved.multiple, true);
+  assert.equal(saved.anonymous, true);
+  assert.equal(saved.deadline.toDate().toISOString(), future);
+  await api('member', 'put', `/votes/${vote}/ballot`).send({ options: [0, 2] }).expect(200);
+  const expired = (await api('member', 'post', '/votes').send({ question: 'Hết hạn', options: ['A', 'B'], deadline: past }).expect(201)).body.id;
+  await api('member', 'put', `/votes/${expired}/ballot`).send({ options: [0] }).expect(400);
+  await api('other', 'patch', `/votes/${vote}`).send({ question: 'Không có quyền' }).expect(403);
+  await api('member', 'patch', `/votes/${vote}`).send({ options: ['C', 'A', 'D'], indexMap: [2, 0, null] }).expect(200);
+  assert.deepEqual((await ref.get()).data().options, ['C', 'A', 'D']);
+  assert.deepEqual((await ref.collection('ballots').doc(users.member.uid).get()).data().options, [0, 1]);
+  await api('member', 'patch', `/votes/${vote}`).send({ deadline: null }).expect(200);
+  assert.equal((await ref.get()).data().deadline, null);
+  await api('leader', 'delete', `/votes/${vote}`).expect(200);
+  await api('leader', 'delete', `/votes/${expired}`).expect(200);
+});
 test('meeting votes keep a When2meet sized grid and vote indexes stay in range', async () => {
   const slots=Array.from({length:32},(_,i)=>`Khung ${i+1}`);
   await api('member','post','/votes').send({question:'Họp tuần sau',kind:'meeting',options:Array.from({length:61},(_,i)=>`S${i}`)}).expect(400);

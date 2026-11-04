@@ -515,10 +515,10 @@ class _NotificationScreenState extends State<NotificationScreen> {
           onLongPress: () => _showDetail(n),
           child: Container(
             padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
+            decoration: AccentBoxDecoration(
+              accent: color,
               gradient: gradient,
               borderRadius: BorderRadius.circular(22),
-              border: Border(left: BorderSide(color: color, width: 5)),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -606,9 +606,10 @@ class _NotificationScreenState extends State<NotificationScreen> {
     return DecoratedBox(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFFF0EBF9), Color(0xFFF7F4FC)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFF0E9FC), Color(0xFFFAF7FF), Color(0xFFFDF9FD)],
+          stops: [0, .6, 1],
         ),
       ),
       child: Column(
@@ -645,7 +646,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
             decoration: AccentBoxDecoration(
               accent: AppColors.purple,
               gradient: const LinearGradient(
-                colors: [Color(0xFFE8E5FA), Color(0xFFF7EAF4)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFE5E5FB), Color(0xFFF4E8F5)],
               ),
               borderRadius: BorderRadius.circular(22),
             ),

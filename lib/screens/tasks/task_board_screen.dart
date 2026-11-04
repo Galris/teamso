@@ -76,7 +76,7 @@ class TaskBoardScreenState extends State<TaskBoardScreen> {
   final ScrollController _statusScroll = ScrollController();
   final Map<String, GlobalKey> _statusKeys = {};
   String? _focusedStatus;
-  final Set<String> _collapsed = {};
+  String _taskQuery = '';
 
   /// 0 = danh sách theo trạng thái, 1 = lịch họp nhóm + deadline.
   int _viewMode = 0;
@@ -325,64 +325,142 @@ class TaskBoardScreenState extends State<TaskBoardScreen> {
     super.dispose();
   }
 
-  Widget _buildStatusTabs() => SingleChildScrollView(
-    controller: _statusScroll,
-    scrollDirection: Axis.horizontal,
-    child: Row(
-      children: [
-        for (final status in <String?>[null, ..._statuses])
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: Material(
-              key: _statusKeys.putIfAbsent(status ?? 'all', () => GlobalKey()),
-              color: _focusedStatus == status
-                  ? _selectedFilterColor(status)
-                  : Colors.white,
-              borderRadius: BorderRadius.circular(24),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(24),
-                onTap: () {
-                  setState(() => _focusedStatus = status);
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted) return;
-                    final target = _statusKeys[status ?? 'all']?.currentContext;
-                    if (target != null) {
-                      final renderObject = target.findRenderObject();
-                      if (renderObject != null) {
-                        Scrollable.of(target).position.ensureVisible(
-                          renderObject,
-                          alignment: .5,
-                          duration: const Duration(milliseconds: 280),
-                          curve: Curves.easeOutCubic,
-                        );
-                      }
-                    }
-                  });
-                },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 15,
-                    vertical: 11,
-                  ),
-                  child: Text(
-                    status ?? 'Tất cả',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: _focusedStatus == status
-                          ? FontWeight.w600
-                          : FontWeight.w500,
-                      color: _focusedStatus == status
-                          ? Colors.white
-                          : _textPrimary,
-                    ),
-                  ),
-                ),
-              ),
+  int _countFor(String? status) => status == null
+      ? _visibleEntries(null).length
+      : _tasksForStatus(status).length;
+
+  Widget _buildStatusTabs() => SizedBox(
+    height: MediaQuery.textScalerOf(context).scale(14) + 40,
+    child: ListView.separated(
+      controller: _statusScroll,
+      scrollDirection: Axis.horizontal,
+      itemCount: _statuses.length + 1,
+      separatorBuilder: (_, _) => const SizedBox(width: 8),
+      itemBuilder: (context, index) {
+        final status = index == 0 ? null : _statuses[index - 1];
+        final selected = _focusedStatus == status;
+        final accent = status == null
+            ? teamUpDarkPurple
+            : _statusColor(status);
+        return Center(
+          key: _statusKeys.putIfAbsent(status ?? 'all', () => GlobalKey()),
+          child: ChoiceChip(
+            label: Text('${status ?? 'Tất cả'} (${_countFor(status)})'),
+            selected: selected,
+            showCheckmark: false,
+            backgroundColor: Colors.white,
+            selectedColor: teamUpDarkPurple,
+            side: BorderSide(
+              color: selected ? teamUpDarkPurple : accent.withValues(alpha: .25),
             ),
+            labelStyle: TextStyle(
+              color: selected ? Colors.white : _textPrimary,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            shape: const StadiumBorder(),
+            onSelected: (_) {
+              setState(() => _focusedStatus = status);
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted || !_statusScroll.hasClients) return;
+                final target = _statusKeys[status ?? 'all']?.currentContext
+                    ?.findRenderObject();
+                if (target != null) {
+                  _statusScroll.position.ensureVisible(
+                    target,
+                    alignment: .5,
+                    duration: const Duration(milliseconds: 280),
+                    curve: Curves.easeOutCubic,
+                  );
+                }
+              });
+            },
           ),
-      ],
+        );
+      },
     ),
   );
+
+  /// Danh sách phẳng (task, tab) sau khi lọc trạng thái + từ khóa.
+  /// Khi xem "Tất cả", việc cần tôi duyệt chỉ hiện một lần (kèm nút duyệt).
+  List<(Map<String, dynamic>, String)> _visibleEntries(String? focused) {
+    final query = _taskQuery.toLowerCase().trim();
+    String key(Map<String, dynamic> t) => '${t['projectId']}/${t['id']}';
+    final reviewKeys = {for (final t in _tasksForStatus('Cần bạn duyệt')) key(t)};
+    final out = <(Map<String, dynamic>, String)>[];
+    for (final status in focused == null ? _statuses : [focused]) {
+      for (final task in _tasksForStatus(status)) {
+        if (focused == null &&
+            status != 'Cần bạn duyệt' &&
+            reviewKeys.contains(key(task))) {
+          continue;
+        }
+        if (query.isNotEmpty &&
+            !(task['title'] ?? '').toString().toLowerCase().contains(query)) {
+          continue;
+        }
+        out.add((task, status));
+      }
+    }
+    return out;
+  }
+
+  Widget _buildHeaderCard() {
+    final mine = _store.tasksForCurrentUser();
+    final done = mine.where((t) => t['status'] == 'Hoàn thành').length;
+    return Container(
+      padding: const EdgeInsets.all(22),
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: AccentBoxDecoration(
+        accent: teamUpPurple,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFE5E5FB), Color(0xFFF4E8F5)],
+        ),
+        borderRadius: BorderRadius.circular(26),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: .8),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(
+              Icons.assignment_ind_outlined,
+              size: 26,
+              color: teamUpDarkPurple,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Việc của tôi',
+                  style: TextStyle(
+                    fontSize: 23,
+                    height: 1.2,
+                    fontWeight: FontWeight.w700,
+                    color: teamUpDarkPurple,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${mine.length} công việc · $done hoàn thành',
+                  style: const TextStyle(fontSize: 12, color: _textSecondary),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   void _openTask(Map<String, dynamic> task, String group) {
     final taskId = task['id'];
@@ -415,193 +493,6 @@ class TaskBoardScreenState extends State<TaskBoardScreen> {
             },
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _taskRow(Map<String, dynamic> task, String group) {
-    final status = task['status']?.toString() ?? group;
-    final color = _tabColor(_statuses.indexOf(group));
-    final project = _store.projectById(task['projectId']?.toString() ?? '');
-    final date = _formatDate(task['dueDate']?.toString());
-    return Material(
-      color: Colors.white.withValues(alpha: .92),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: () => _openTask(task, group),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Icon(
-                  status == 'Đang làm'
-                      ? Icons.play_circle_outline_rounded
-                      : status == 'Chờ duyệt'
-                      ? Icons.hourglass_top_rounded
-                      : Icons.check_box_outline_blank_rounded,
-                  size: 23,
-                  color: color,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      task['title']?.toString() ?? 'Công việc',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        height: 1.35,
-                        color: _textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 6,
-                      children: [
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.folder_outlined,
-                              size: 14,
-                              color: _textSecondary,
-                            ),
-                            const SizedBox(width: 4),
-                            Flexible(
-                              child: Text(
-                                project?['name']?.toString() ?? 'Dự án',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  color: _textSecondary,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.calendar_today_outlined,
-                              size: 13,
-                              color: _textSecondary,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              date,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: _textSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: .12),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Text(
-                  status,
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: group == 'Chờ duyệt'
-                        ? const Color(0xFF90651D)
-                        : teamUpDarkPurple,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _group(String status) {
-    final tasks = _tasksForStatus(status);
-    if (tasks.isEmpty && _focusedStatus == null) return const SizedBox.shrink();
-    final color = _tabColor(_statuses.indexOf(status));
-    final collapsed = _collapsed.contains(status);
-    return Container(
-      margin: const EdgeInsets.only(top: 16),
-      padding: const EdgeInsets.fromLTRB(6, 0, 6, 6),
-      decoration: AccentBoxDecoration(
-        accent: color,
-        gradient: pastelGradient(Color.lerp(Colors.white, color, .12)!),
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Column(
-        children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(24),
-            onTap: () => setState(() {
-              if (collapsed) {
-                _collapsed.remove(status);
-              } else {
-                _collapsed.add(status);
-              }
-            }),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
-              child: Row(
-                children: [
-                  Icon(
-                    collapsed
-                        ? Icons.keyboard_arrow_right_rounded
-                        : Icons.keyboard_arrow_down_rounded,
-                    color: color,
-                  ),
-                  const SizedBox(width: 7),
-                  Expanded(
-                    child: Text(
-                      '$status (${tasks.length})',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: _textPrimary,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (!collapsed) ...[
-            if (tasks.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(20),
-                child: Text(
-                  'Chưa có công việc trong mục này.',
-                  style: TextStyle(color: _textSecondary),
-                ),
-              ),
-            for (var i = 0; i < tasks.length; i++)
-              Padding(
-                padding: EdgeInsets.only(top: i == 0 ? 0 : 3),
-                child: _taskRow(tasks[i], status),
-              ),
-          ],
-        ],
       ),
     );
   }
@@ -668,45 +559,33 @@ class TaskBoardScreenState extends State<TaskBoardScreen> {
 
     final canReview = isLeader && status == 'Chờ duyệt';
 
+    final pastel = switch (status) {
+      'Đang làm' => const Color(0xFFDDEEFF),
+      'Chờ duyệt' || 'Cần bạn duyệt' => const Color(0xFFFFEDCB),
+      'Hoàn thành' => const Color(0xFFDCF3E8),
+      'Cần sửa' => const Color(0xFFFCDDEC),
+      _ => const Color(0xFFE9DAFA),
+    };
+
     return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
+      padding: const EdgeInsets.all(16),
+      decoration: AccentBoxDecoration(
+        accent: statusColor,
+        gradient: pastelGradient(pastel),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFECEBF2)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0F4D4379),
-            blurRadius: 14,
-            offset: Offset(0, 5),
-          ),
-        ],
       ),
-      clipBehavior: Clip.antiAlias,
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(width: 5, color: statusColor),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: _buildTaskCardBody(
-                  task,
-                  currentTab,
-                  project,
-                  projectColor,
-                  status,
-                  statusColor,
-                  assigneeId,
-                  canStart,
-                  canSubmit,
-                  canReview,
-                  isReviewTab,
-                ),
-              ),
-            ),
-          ],
-        ),
+      child: _buildTaskCardBody(
+        task,
+        currentTab,
+        project,
+        projectColor,
+        status,
+        statusColor,
+        assigneeId,
+        canStart,
+        canSubmit,
+        canReview,
+        isReviewTab,
       ),
     );
   }
@@ -761,38 +640,48 @@ class TaskBoardScreenState extends State<TaskBoardScreen> {
         ),
         const SizedBox(height: 12),
 
-        // Nhãn dự án
-        Wrap(
-          spacing: 7,
-          runSpacing: 7,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-              decoration: BoxDecoration(
-                color: projectColor.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                project?['tag']?.toString() ??
-                    project?['name']?.toString() ??
-                    'Dự án',
-                style: TextStyle(
-                  color: projectColor,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
+        // Nhãn dự án: luôn hiện tên dự án .
+        Builder(
+          builder: (context) {
+            final name = (project?['name'] ?? '').toString().trim();
+            return Wrap(
+              spacing: 7,
+              runSpacing: 7,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Container(
+                  constraints: const BoxConstraints(maxWidth: 260),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: projectColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.folder_outlined, size: 14, color: projectColor),
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          name.isEmpty ? 'Dự án' : name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: projectColor,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ),
-            if (task['priority'] == 'Cao')
-              const Text(
-                'Cao',
-                style: TextStyle(
-                  color: Color(0xFFB94B54),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-          ],
+              ],
+            );
+          },
         ),
         const SizedBox(height: 12),
 
@@ -973,8 +862,8 @@ class TaskBoardScreenState extends State<TaskBoardScreen> {
       final canCreate = _store.projectsForCurrentUser().any(
         (p) => _store.canCreateTask(p['id'].toString()),
       );
-      final groups = _focusedStatus == null ? _statuses : [_focusedStatus!];
-      final empty = groups.every((status) => _tasksForStatus(status).isEmpty);
+      final entries = _visibleEntries(_focusedStatus);
+      final hasAny = _visibleEntries(null).isNotEmpty;
       return Scaffold(
         backgroundColor: Colors.transparent,
         body: DecoratedBox(
@@ -995,29 +884,64 @@ class TaskBoardScreenState extends State<TaskBoardScreen> {
                         children: [
                           _buildViewToggle(),
                           const SizedBox(height: 16),
+                          _buildHeaderCard(),
+                          TextField(
+                            onChanged: (v) => setState(() => _taskQuery = v),
+                            decoration: const InputDecoration(
+                              hintText: 'Tìm công việc…',
+                              prefixIcon: Icon(Icons.search_rounded),
+                            ),
+                          ),
+                          const SizedBox(height: 14),
                           _buildStatusTabs(),
-                          if (empty && _focusedStatus == null)
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 40),
+                          const SizedBox(height: 18),
+                          if (entries.isEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 40,
+                                horizontal: 20,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(24),
+                              ),
                               child: Column(
                                 children: [
-                                  Icon(
+                                  const Icon(
                                     Icons.task_alt_rounded,
+                                    size: 42,
                                     color: teamUpPurple,
-                                    size: 44,
                                   ),
-                                  SizedBox(height: 14),
+                                  const SizedBox(height: 14),
                                   Text(
-                                    'Bạn chưa có công việc cần xử lý',
-                                    style: TextStyle(
-                                      color: teamUpDarkPurple,
+                                    hasAny
+                                        ? 'Không có công việc phù hợp'
+                                        : 'Bạn chưa có công việc cần xử lý',
+                                    style: const TextStyle(
+                                      fontSize: 16,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
+                                  if (hasAny) ...[
+                                    const SizedBox(height: 8),
+                                    const Text(
+                                      'Thử đổi từ khóa hoặc bộ lọc trạng thái.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: _textSecondary,
+                                        height: 1.5,
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
-                            ),
-                          for (final status in groups) _group(status),
+                            )
+                          else
+                            for (final (task, tab) in entries)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 14),
+                                child: _buildTaskCard(task, tab),
+                              ),
                         ],
                       )
                     : Column(

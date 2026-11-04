@@ -13,6 +13,7 @@ import '../../widgets/prompt_dialog.dart';
 import 'invite_member_dialog.dart';
 
 import 'package:url_launcher/url_launcher.dart';
+import '../projects/project_qr_sheet.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/theme/app_colors.dart';
@@ -905,9 +906,9 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
                   vertical: 5,
                 ),
                 leading: const Icon(
-                  Icons.qr_code_2_rounded,
+                  Icons.vpn_key_outlined,
                   color: teamUpPurple,
-                  size: 30,
+                  size: 28,
                 ),
                 title: const Text(
                   'Mã tham gia',
@@ -922,17 +923,35 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
                     color: teamUpDarkPurple,
                   ),
                 ),
-                trailing: IconButton(
-                  tooltip: 'Sao chép mã tham gia',
-                  icon: const Icon(
-                    Icons.copy_rounded,
-                    size: 20,
-                    color: teamUpDarkPurple,
-                  ),
-                  onPressed: () {
-                    Clipboard.setData(ClipboardData(text: code));
-                    _message('Đã sao chép mã tham gia.');
-                  },
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'Tạo mã QR',
+                      icon: const Icon(
+                        Icons.qr_code_2_rounded,
+                        size: 24,
+                        color: teamUpDarkPurple,
+                      ),
+                      onPressed: () => showProjectQrSheet(
+                        context,
+                        projectName: name,
+                        joinCode: code,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Sao chép mã tham gia',
+                      icon: const Icon(
+                        Icons.copy_rounded,
+                        size: 20,
+                        color: teamUpDarkPurple,
+                      ),
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: code));
+                        _message('Đã sao chép mã tham gia.');
+                      },
+                    ),
+                  ],
                 ),
               ),
             ),

@@ -20,7 +20,11 @@ class ProjectChatList extends StatefulWidget {
     this.previewErrors = const {},
     this.currentUserId = '',
     this.unreadCounts = const {},
+    this.onCreate,
+    this.creating = false,
   });
+  final VoidCallback? onCreate;
+  final bool creating;
   final List<Map<String, dynamic>> projects;
   final Map<String, Map<String, dynamic>?> previews;
   final Set<String> previewErrors;
@@ -33,8 +37,11 @@ class ProjectChatList extends StatefulWidget {
   State<ProjectChatList> createState() => _ProjectChatListState();
 }
 
+enum _ChatFilter { all, direct, project }
+
 class _ProjectChatListState extends State<ProjectChatList> {
   String _query = '';
+  _ChatFilter _filter = _ChatFilter.all;
   DateTime? _date(dynamic value) {
     if (value is Timestamp) return value.toDate().toLocal();
     if (value is DateTime) return value.toLocal();
@@ -66,32 +73,36 @@ class _ProjectChatListState extends State<ProjectChatList> {
 
   @override
   Widget build(BuildContext context) {
+    final Widget? placeholder;
     if (widget.loading && widget.projects.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (widget.error != null && widget.projects.isEmpty) {
-      return EmptyState(
+      placeholder = const Center(child: CircularProgressIndicator());
+    } else if (widget.error != null && widget.projects.isEmpty) {
+      placeholder = EmptyState(
         icon: Icons.cloud_off_rounded,
         title: 'Không tải được dự án',
         message: widget.error,
       );
-    }
-    if (widget.projects.isEmpty) {
-      return const EmptyState(
+    } else if (widget.projects.isEmpty) {
+      placeholder = const EmptyState(
         icon: Icons.forum_outlined,
-        title: 'Chưa có dự án',
+        title: 'Chưa có cuộc trò chuyện',
         message:
-            'Tạo hoặc tham gia một dự án để trò chuyện cùng các thành viên.',
+            'Bấm dấu + để nhắn riêng hoặc chọn một dự án để trò chuyện cùng nhóm.',
       );
+    } else {
+      placeholder = null;
     }
     final projects =
         widget.projects
-            .where(
-              (project) => (project['name'] ?? '')
+            .where((project) {
+              final isDirect = project['id'].toString().startsWith('direct:');
+              if (_filter == _ChatFilter.direct && !isDirect) return false;
+              if (_filter == _ChatFilter.project && isDirect) return false;
+              return (project['name'] ?? '')
                   .toString()
                   .toLowerCase()
-                  .contains(_query.trim().toLowerCase()),
-            )
+                  .contains(_query.trim().toLowerCase());
+            })
             .toList()
           ..sort((a, b) {
             final byTime = _sortDate(b).compareTo(_sortDate(a));
@@ -105,43 +116,79 @@ class _ProjectChatListState extends State<ProjectChatList> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(22, 20, 22, 4),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
             child: Row(
               children: [
-                Icon(Icons.forum_outlined, color: AppColors.darkPurple),
-                SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    'Kết nối với nhóm',
-                    style: TextStyle(
-                      fontSize: 21,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.darkPurple,
+                  child: TextField(
+                    onChanged: (value) => setState(() => _query = value),
+                    decoration: InputDecoration(
+                      hintText: 'Tìm cuộc trò chuyện…',
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      isDense: true,
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
                     ),
                   ),
+                ),
+                const SizedBox(width: 10),
+                IconButton.filled(
+                  tooltip: 'Trò chuyện mới',
+                  onPressed: widget.creating ? null : widget.onCreate,
+                  style: IconButton.styleFrom(
+                    backgroundColor: AppColors.darkPurple,
+                    foregroundColor: Colors.white,
+                    fixedSize: const Size(48, 48),
+                  ),
+                  icon: widget.creating
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.add_rounded, size: 26),
                 ),
               ],
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-            child: TextField(
-              onChanged: (value) => setState(() => _query = value),
-              decoration: InputDecoration(
-                hintText: 'Tìm cuộc trò chuyện…',
-                prefixIcon: const Icon(Icons.search_rounded),
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
-                  borderSide: BorderSide.none,
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
-                  borderSide: BorderSide.none,
-                ),
-              ),
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+            child: Wrap(
+              spacing: 8,
+              children: [
+                for (final (f, label) in [
+                  (_ChatFilter.all, 'Tất cả'),
+                  (_ChatFilter.direct, 'Cá nhân'),
+                  (_ChatFilter.project, 'Dự án'),
+                ])
+                  ChoiceChip(
+                    label: Text(label),
+                    selected: _filter == f,
+                    showCheckmark: false,
+                    selectedColor: AppColors.darkPurple,
+                    backgroundColor: Colors.white,
+                    side: BorderSide.none,
+                    labelStyle: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: _filter == f
+                          ? Colors.white
+                          : AppColors.darkPurple,
+                    ),
+                    onSelected: (_) => setState(() => _filter = f),
+                  ),
+              ],
             ),
           ),
           Padding(
@@ -180,11 +227,13 @@ class _ProjectChatListState extends State<ProjectChatList> {
               ),
             ),
           Expanded(
-            child: projects.isEmpty
+            child: placeholder != null
+                ? placeholder
+                : projects.isEmpty
                 ? const EmptyState(
                     icon: Icons.search_off_rounded,
-                    title: 'Không tìm thấy dự án',
-                    message: 'Thử tìm bằng tên khác.',
+                    title: 'Không tìm thấy cuộc trò chuyện',
+                    message: 'Thử đổi bộ lọc hoặc tìm bằng tên khác.',
                   )
                 : ListView.separated(
                     padding: const EdgeInsets.only(bottom: 100),

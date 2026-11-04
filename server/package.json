@@ -18,7 +18,7 @@
     "api": "node scripts/start-local.js",
     "firebase:save": "node scripts/save-emulators.js",
     "firebase:check-cloud": "node scripts/check-cloud.js",
-    "test:unit": "node --test test/task_notifications.test.js test/workspace_options.test.js test/direct_chats.test.js"
+    "test:unit": "node --test test/task_notifications.test.js test/workspace_options.test.js test/vote_settings.test.js test/direct_chats.test.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
