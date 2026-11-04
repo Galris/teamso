@@ -57,8 +57,7 @@ All protected endpoints require `Authorization: Bearer <Firebase ID token>`. The
 ## Workspace (collection = `documents` | `meetings` | `votes`)
 - `POST /api/projects/:projectId/workspace/documents` – body `{label, url?}` (url rỗng hoặc http/https).
 - `POST /api/projects/:projectId/workspace/meetings` – body `{label, meetUrl, startsAt, endsAt}` (`meetUrl` = link họp, bắt buộc, http/https) (ISO‑8601 UTC).
-- `POST /api/projects/:projectId/workspace/votes` – body `{question, options: string[2..20 (hoặc tới 60 khung giờ khi kind=meeting)], kind?}`. `kind` = `general` (mặc định, **không gửi**) hoặc `meeting` (chọn khung giờ rảnh kiểu When2meet; backend cần lưu `kind` vào document vote). Với `kind=general` app còn gửi `multiple` (bool, mặc định false = chọn một đáp án), `anonymous` (bool) và `deadline?` (ISO‑8601 UTC); backend lưu các trường này vào document vote và từ chối ballot sau `deadline`. Bình chọn cũ không có `multiple` được coi là cho chọn nhiều.
-- `PATCH /api/projects/:projectId/workspace/votes/:voteId` – body (mọi trường tùy chọn) `{question?, options?, indexMap?, deadline?}`. Chỉ người tạo hoặc Leader được sửa. Khi có `options` thì `indexMap` (cùng độ dài, phần tử = chỉ số cũ được giữ hoặc `null` nếu là mục mới) dùng để chuyển các ballot `projects/{id}/workspace…/votes/{voteId}/ballots/{uid}` sang chỉ số mới trong cùng một transaction; phiếu của mục bị xóa bị bỏ, ballot rỗng thì xóa. `deadline: null` = bỏ hạn.
+- `POST /api/projects/:projectId/workspace/votes` – body `{question, options: string[2..20 (hoặc tới 60 khung giờ khi kind=meeting)], kind?}`. `kind` = `general` (mặc định, **không gửi**) hoặc `meeting` (chọn khung giờ rảnh kiểu When2meet; backend cần lưu `kind` vào document vote).
 - `PUT /api/projects/:projectId/workspace/votes/:voteId/ballot` – body `{options: number[]}` (chỉ số phương án/khung giờ; mảng rỗng = bỏ phiếu).
 - `DELETE /api/projects/:projectId/workspace/:collection/:id`.
 

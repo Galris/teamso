@@ -2,6 +2,7 @@ import 'workspace_dialog_style.dart';
 
 import 'package:flutter/material.dart';
 
+import '../../utils/doc_kind.dart';
 
 /// Bản nháp bình chọn mà dialog tạo bình chọn trả về cho Workspace.
 class VoteDraft {
@@ -9,23 +10,11 @@ class VoteDraft {
     required this.question,
     required this.kind,
     required this.options,
-    this.deadline,
-    this.multiple = false,
-    this.anonymous = false,
   });
 
   final String question;
   final String kind;
   final List<String> options;
-
-  /// Hạn bình chọn (chỉ bình chọn thường). null = không giới hạn.
-  final DateTime? deadline;
-
-  /// Cho phép chọn nhiều đáp án. Mặc định chỉ chọn một.
-  final bool multiple;
-
-  /// Ẩn danh người vote. Mặc định không ẩn danh.
-  final bool anonymous;
 }
 
 const List<int> _slotLengths = <int>[30, 60, 90];
@@ -113,50 +102,6 @@ class _VoteCreateDialogState extends State<_VoteCreateDialog> {
   int _startMinutes = 9 * 60;
   int _endMinutes = 18 * 60;
   int _slotLength = 60;
-  DateTime? _deadline;
-  bool _multiple = false;
-  bool _anonymous = false;
-
-  Future<void> _pickDeadline() async {
-    final now = DateTime.now();
-    final date = await showDatePicker(
-      context: context,
-      initialDate: _deadline ?? now,
-      firstDate: DateTime(now.year, now.month, now.day),
-      lastDate: DateTime(now.year + 5, 12, 31),
-      helpText: 'CHỌN NGÀY HẾT HẠN',
-      cancelText: 'Hủy',
-      confirmText: 'Chọn',
-    );
-    if (date == null || !mounted) return;
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(_deadline ?? now),
-      helpText: 'CHỌN GIỜ HẾT HẠN',
-      cancelText: 'Hủy',
-      confirmText: 'Chọn',
-      builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
-        child: child!,
-      ),
-    );
-    if (time == null || !mounted) return;
-    final picked = DateTime(
-      date.year,
-      date.month,
-      date.day,
-      time.hour,
-      time.minute,
-    );
-    if (!picked.isAfter(DateTime.now())) {
-      _message('Deadline phải ở trong tương lai.');
-      return;
-    }
-    setState(() => _deadline = picked);
-  }
-
-  String _deadlineText(DateTime d) =>
-      '${_two(d.day)}/${_two(d.month)}/${d.year} ${_two(d.hour)}:${_two(d.minute)}';
 
   @override
   void dispose() {
@@ -272,9 +217,6 @@ class _VoteCreateDialogState extends State<_VoteCreateDialog> {
           question: _question.text.trim(),
           kind: 'general',
           options: options,
-          deadline: _deadline,
-          multiple: _multiple,
-          anonymous: _anonymous,
         ),
       );
       return;
@@ -403,44 +345,6 @@ class _VoteCreateDialogState extends State<_VoteCreateDialog> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _pickDeadline,
-                            icon: const Icon(Icons.timer_outlined, size: 18),
-                            label: Text(
-                              _deadline == null
-                                  ? 'Deadline (tùy chọn)'
-                                  : _deadlineText(_deadline!),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ),
-                        if (_deadline != null)
-                          IconButton(
-                            tooltip: 'Bỏ deadline',
-                            onPressed: () => setState(() => _deadline = null),
-                            icon: const Icon(Icons.close_rounded),
-                          ),
-                      ],
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: const Text('Có thể chọn nhiều lựa chọn'),
-                      value: _multiple,
-                      onChanged: (v) => setState(() => _multiple = v),
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: const Text('Lựa chọn ẩn danh'),
-                      subtitle: const Text('Không hiển thị ai đã bình chọn'),
-                      value: _anonymous,
-                      onChanged: (v) => setState(() => _anonymous = v),
-                    ),
                   ] else ...[
                     Row(
                       children: [
@@ -553,7 +457,253 @@ class _VoteCreateDialogState extends State<_VoteCreateDialog> {
   }
 }
 
-String voteDateLabel(DateTime day) => _dateLabel(day);
-String voteTimeLabel(int minutes) => _timeLabel(minutes);
-const int voteMaxSlots = _maxSlots;
-const int voteMaxGeneralOptions = _maxGeneralOptions;
+/// Dialog tích phương án / khung giờ rảnh cho một bình chọn.
+Future<List<int>?> showVoteBallotDialog(
+  BuildContext context, {
+  required Map<String, dynamic> vote,
+}) {
+  final options = (vote['options'] as List? ?? const []).toList();
+  final isMeeting = vote['kind']?.toString() == 'meeting';
+
+  final selected = <int>{
+    ...((vote['myVotes'] as List?) ?? const []).whereType<int>(),
+  };
+
+  return showDialog<List<int>>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (dialogContext, setDialogState) => AlertDialog(
+        title: Text(isMeeting ? 'Khung giờ bạn rảnh' : 'Chọn phương án'),
+        content: SizedBox(
+          width: 420,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  (vote['question'] ?? 'Bình chọn').toString(),
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  isMeeting
+                      ? 'Tích tất cả khung giờ bạn tham gia được. '
+                            'Bỏ tích nếu bạn bận.'
+                      : 'Bạn có thể chọn nhiều phương án '
+                            'và thay đổi lựa chọn bất cứ lúc nào.',
+                ),
+                const SizedBox(height: 8),
+                for (var i = 0; i < options.length; i++)
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    dense: true,
+                    title: Text(options[i].toString()),
+                    value: selected.contains(i),
+                    onChanged: (checked) {
+                      setDialogState(() {
+                        if (checked == true) {
+                          selected.add(i);
+                        } else {
+                          selected.remove(i);
+                        }
+                      });
+                    },
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, selected.toList()..sort()),
+            child: const Text('Lưu lựa chọn'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+const List<Color> _memberPalette = <Color>[
+  Color(0xFF867CB3),
+  Color(0xFF439751),
+  Color(0xFFF472B6),
+  Color(0xFF4285F4),
+  Color(0xFFFACC15),
+  Color(0xFF4D4379),
+  Color(0xFFD94A4A),
+  Color(0xFF00A8A8),
+];
+
+Color memberColorFor(int index) =>
+    _memberPalette[index % _memberPalette.length];
+
+/// Lưới kiểu When2meet: dòng = khung giờ, cột = thành viên.
+class MeetingVoteGrid extends StatelessWidget {
+  const MeetingVoteGrid({super.key, required this.vote, required this.members});
+
+  final Map<String, dynamic> vote;
+  final List<Map<String, dynamic>> members;
+
+  static const double _slotColumnWidth = 148;
+  static const double _cellWidth = 46;
+
+  Map<String, Set<int>> _choicesByUid() {
+    final result = <String, Set<int>>{};
+    for (final voter in (vote['voters'] as List? ?? const [])) {
+      if (voter is! Map) continue;
+      final uid = voter['uid']?.toString() ?? '';
+      if (uid.isEmpty) continue;
+      result[uid] = (voter['options'] as List? ?? const [])
+          .whereType<int>()
+          .toSet();
+    }
+    return result;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final slots = (vote['options'] as List? ?? const []).toList();
+    final counts = (vote['counts'] as List? ?? const []).cast<num>();
+    final choices = _choicesByUid();
+    final maxCount = counts.isEmpty
+        ? 0
+        : counts.map((value) => value.toInt()).reduce((a, b) => a > b ? a : b);
+
+    if (slots.isEmpty) {
+      return const Text('Bình chọn chưa có khung giờ nào.');
+    }
+    if (members.isEmpty) {
+      return const Text('Chưa có thành viên để hiển thị lịch họp.');
+    }
+
+    final colorByUid = <String, Color>{};
+    for (var i = 0; i < members.length; i++) {
+      colorByUid[members[i]['uid'].toString()] = memberColorFor(i);
+    }
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              SizedBox(
+                width: _slotColumnWidth,
+                child: const Padding(
+                  padding: EdgeInsets.only(right: 8, bottom: 6),
+                  child: Text(
+                    'Khung giờ',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                  ),
+                ),
+              ),
+              for (final member in members)
+                SizedBox(
+                  width: _cellWidth,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Column(
+                      children: [
+                        CircleAvatar(
+                          radius: 13,
+                          backgroundColor:
+                              colorByUid[member['uid'].toString()] ??
+                              DocKind.unknown.color,
+                          child: Text(
+                            (member['initials'] ?? '?').toString(),
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          (member['name'] ?? 'TV').toString().split(' ').last,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 10),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          for (var row = 0; row < slots.length; row++)
+            Container(
+              color: maxCount > 0 && counts[row].toInt() == maxCount
+                  ? const Color(0xFFEAF5EC)
+                  : null,
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: _slotColumnWidth,
+                    child: Padding(
+                      padding: const EdgeInsets.only(
+                        right: 8,
+                        top: 4,
+                        bottom: 4,
+                      ),
+                      child: Text(
+                        slots[row].toString(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ),
+                  for (final member in members)
+                    SizedBox(
+                      width: _cellWidth,
+                      height: 30,
+                      child: Padding(
+                        padding: const EdgeInsets.all(3),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color:
+                                choices[member['uid'].toString()]?.contains(
+                                      row,
+                                    ) ??
+                                    false
+                                ? colorByUid[member['uid'].toString()]
+                                : const Color(0xFFF3F2F7),
+                            borderRadius: BorderRadius.circular(5),
+                          ),
+                        ),
+                      ),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8, top: 4, bottom: 4),
+                    child: Text(
+                      '${counts[row].toInt()} người',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight:
+                            maxCount > 0 && counts[row].toInt() == maxCount
+                            ? FontWeight.w700
+                            : FontWeight.w400,
+                        color: maxCount > 0 && counts[row].toInt() == maxCount
+                            ? const Color(0xFF439751)
+                            : Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}

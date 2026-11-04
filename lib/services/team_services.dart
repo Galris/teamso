@@ -1066,17 +1066,12 @@ class WorkspaceService extends _FirestoreService {
 
         myVotes.sort();
 
-        // Bình chọn ẩn danh: chỉ giữ tổng phiếu và lựa chọn của chính mình.
-        final anonymous = vote['anonymous'] == true;
-
         rows.add({
           ...vote,
           'counts': counts,
           'totalVotes': totalParticipants,
           'myVotes': myVotes,
-          'voters': anonymous
-              ? voters.where((v) => v['uid'] == uid).toList()
-              : voters,
+          'voters': voters,
         });
       }
 
@@ -1220,9 +1215,6 @@ class WorkspaceService extends _FirestoreService {
     String question,
     List<String> options, {
     String kind = 'general',
-    DateTime? deadline,
-    bool multiple = false,
-    bool anonymous = false,
   }) async {
     await _guard(
       () => _api.post(
@@ -1231,42 +1223,6 @@ class WorkspaceService extends _FirestoreService {
           'question': question.trim(),
           'options': options.map((v) => v.trim()).toList(),
           if (kind != 'general') 'kind': kind,
-          if (kind == 'general') ...{
-            'multiple': multiple,
-            'anonymous': anonymous,
-            if (deadline != null)
-              'deadline': deadline.toUtc().toIso8601String(),
-          },
-        },
-      ),
-    );
-  }
-
-  /// Sửa bình chọn có sẵn (không tạo mới).
-  ///
-  /// [indexMap] cho từng phương án mới: chỉ số cũ được giữ (để backend chuyển
-  /// phiếu sang vị trí mới) hoặc null nếu là phương án mới. Phương án cũ không
-  /// nằm trong [indexMap] bị xóa cùng phiếu của nó.
-  Future<void> updateVote(
-    String projectId,
-    String voteId, {
-    String? question,
-    List<String>? options,
-    List<int?>? indexMap,
-    bool deadlineChanged = false,
-    DateTime? deadline,
-  }) async {
-    await _guard(
-      () => _api.patch(
-        '${_path(projectId, 'votes')}/$voteId',
-        body: {
-          if (question != null) 'question': question.trim(),
-          if (options != null) ...{
-            'options': options.map((v) => v.trim()).toList(),
-            'indexMap': indexMap,
-          },
-          if (deadlineChanged)
-            'deadline': deadline?.toUtc().toIso8601String(),
         },
       ),
     );

@@ -3,7 +3,6 @@ import '../../core/theme/accent_surface.dart';
 
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -13,8 +12,6 @@ import '../../widgets/app_widgets.dart';
 import '../../utils/doc_kind.dart';
 import '../tasks/task_store.dart';
 import 'vote_dialogs.dart';
-import 'vote_edit_dialogs.dart';
-import 'vote_widgets.dart';
 
 /// Workspace theo từng dự án:
 /// Tài liệu, Quick Vote nhiều lựa chọn và lịch họp.
@@ -45,10 +42,6 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   /// Bình chọn mới tạo (xuất hiện sau lần tải đầu) mặc định mở rộng.
   Set<String>? _knownVoteIds;
   final Map<String, bool> _voteExpanded = {};
-
-  /// Lựa chọn của tôi chưa được server xác nhận (hiện ngay khi bấm).
-  final Map<String, Set<int>> _ballotDraft = {};
-  final Set<String> _ballotInFlight = {};
   List<Map<String, dynamic>> _votes = const [];
   List<Map<String, dynamic>> _members = const [];
 
@@ -207,7 +200,6 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                   ? rows.where((row) => row['id'] == widget.focusId).toList()
                   : rows;
               _knownVoteIds ??= {for (final r in rows) r['id'].toString()};
-              _pruneDrafts();
               _loaded.add('votes');
               _loading = _error == null && _loaded.length < 3;
             });
@@ -492,9 +484,6 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
         draft.question,
         draft.options,
         kind: draft.kind,
-        deadline: draft.deadline,
-        multiple: draft.multiple,
-        anonymous: draft.anonymous,
       ),
       'Đã tạo bình chọn.',
     );
@@ -530,148 +519,21 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     );
   }
 
-  // ---- Vote trực tiếp (không popup) -------------------------------------
-
-  Set<int> _serverVotes(String voteId) {
-    final vote = _votes.where((v) => v['id'].toString() == voteId).firstOrNull;
-    return {...((vote?['myVotes'] as List?) ?? const []).whereType<int>()};
-  }
-
-  void _pruneDrafts() {
-    _ballotDraft.removeWhere(
-      (id, draft) =>
-          !_ballotInFlight.contains(id) && setEquals(draft, _serverVotes(id)),
-    );
-  }
-
-  bool _isMultiple(Map<String, dynamic> vote) =>
-      vote['kind']?.toString() == 'meeting' || vote['multiple'] != false;
-
-  DateTime? _deadlineOf(Map<String, dynamic> vote) =>
-      parseVoteDeadline(vote['deadline']);
-
-  bool _isClosed(Map<String, dynamic> vote) {
-    final deadline = _deadlineOf(vote);
-    return deadline != null && DateTime.now().isAfter(deadline);
-  }
-
-  String get _myUid => widget.session?.auth.currentUserId ?? '';
-
-  /// Bình chọn đã áp lựa chọn tạm thời của tôi (để UI phản hồi tức thì).
-  Map<String, dynamic> _withDraft(Map<String, dynamic> vote) {
-    final id = vote['id'].toString();
-    final draft = _ballotDraft[id];
-    if (draft == null) return vote;
-
-    final voters = <Map<String, dynamic>>[
-      for (final v in (vote['voters'] as List? ?? const []))
-        if (v is Map && v['uid']?.toString() != _myUid)
-          Map<String, dynamic>.from(v),
-      if (draft.isNotEmpty)
-        {'uid': _myUid, 'options': draft.toList()..sort()},
-    ];
-    final optionCount = (vote['options'] as List? ?? const []).length;
-    final counts = List<int>.filled(optionCount, 0);
-    for (final v in voters) {
-      for (final i in (v['options'] as List).whereType<int>()) {
-        if (i >= 0 && i < optionCount) counts[i]++;
-      }
-    }
-    // Bình chọn ẩn danh không có danh sách đủ người; giữ tổng của server,
-    // chỉ điều chỉnh phần chênh lệch do lựa chọn của tôi.
-    final serverMine = {
-      ...((vote['myVotes'] as List?) ?? const []).whereType<int>(),
-    };
-    var total = (vote['totalVotes'] as num? ?? 0).toInt();
-    if (serverMine.isEmpty && draft.isNotEmpty) total++;
-    if (serverMine.isNotEmpty && draft.isEmpty) total--;
-    if (vote['anonymous'] == true) {
-      final base = [...((vote['counts'] as List?) ?? const []).cast<num>()];
-      for (var i = 0; i < counts.length && i < base.length; i++) {
-        var c = base[i].toInt();
-        if (serverMine.contains(i)) c--;
-        if (draft.contains(i)) c++;
-        counts[i] = c < 0 ? 0 : c;
-      }
-    }
-    return {
-      ...vote,
-      'voters': voters,
-      'counts': counts,
-      'totalVotes': total < 0 ? 0 : total,
-      'myVotes': draft.toList()..sort(),
-    };
-  }
-
-  void _toggleOption(Map<String, dynamic> vote, int index) {
-    if (widget.session == null || _projectId == null) return;
-    if (_isClosed(vote)) {
-      showAppSnack(context, 'Bình chọn đã hết hạn.', error: true);
+  Future<void> _editVote(Map<String, dynamic> vote) async {
+    if (_busy || _projectId == null || widget.session == null) {
       return;
     }
-    final id = vote['id'].toString();
-    final current = {
-      ...(_ballotDraft[id] ??
-          ((vote['myVotes'] as List?) ?? const []).whereType<int>().toSet()),
-    };
-    if (current.contains(index)) {
-      current.remove(index);
-    } else {
-      if (!_isMultiple(vote)) current.clear();
-      current.add(index);
-    }
-    setState(() => _ballotDraft[id] = current);
-    _flushBallot(id);
-  }
 
-  Future<void> _flushBallot(String voteId) async {
-    final projectId = _projectId;
-    if (projectId == null || _ballotInFlight.contains(voteId)) return;
-    _ballotInFlight.add(voteId);
-    try {
-      while (mounted) {
-        final sent = _ballotDraft[voteId];
-        if (sent == null) break;
-        final snapshot = {...sent};
-        await widget.session!.workspace.voteMultiple(
-          projectId,
-          voteId,
-          snapshot.toList(),
-        );
-        // Nếu người dùng bấm tiếp trong lúc gửi thì gửi lại bản mới nhất.
-        if (setEquals(_ballotDraft[voteId], snapshot)) break;
-      }
-    } catch (error) {
-      if (mounted) {
-        setState(() => _ballotDraft.remove(voteId));
-        showAppSnack(context, errorText(error), error: true);
-      }
-    } finally {
-      _ballotInFlight.remove(voteId);
-      if (mounted) setState(_pruneDrafts);
-    }
-  }
+    final projectId = _projectId!;
+    final voteId = vote['id'].toString();
 
-  // ---- Sửa bình chọn --------------------------------------------------------
-
-  Future<void> _editPoll(Map<String, dynamic> vote) async {
-    final projectId = _projectId;
-    if (_busy || projectId == null || widget.session == null) return;
-    final edit = vote['kind']?.toString() == 'meeting'
-        ? await showMeetingVoteEditDialog(context, vote: vote)
-        : await showGeneralVoteEditDialog(context, vote: vote);
-    if (!mounted || edit == null) return;
+    final result = await showVoteBallotDialog(context, vote: vote);
+    if (!mounted || result == null) return;
     await _guard(
-      () => widget.session!.workspace.updateVote(
-        projectId,
-        vote['id'].toString(),
-        question: edit.question,
-        options: edit.options,
-        indexMap: edit.indexMap,
-        deadlineChanged: edit.deadlineChanged,
-        deadline: edit.deadline,
-      ),
-      'Đã cập nhật bình chọn.',
+      () => widget.session!.workspace.voteMultiple(projectId, voteId, result),
+      result.isEmpty
+          ? 'Đã bỏ toàn bộ lựa chọn.'
+          : 'Đã cập nhật lựa chọn bình chọn.',
     );
   }
 
@@ -994,149 +856,105 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [for (final vote in _votes) _votePanel(_withDraft(vote))],
-    );
-  }
-
-  Widget _votePanel(Map<String, dynamic> vote) {
-    final id = vote['id'].toString();
-    final expanded =
-        _voteExpanded[id] ?? !(_knownVoteIds?.contains(id) ?? false);
-    final canEdit = _canDelete(vote);
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Material(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  clipBehavior: Clip.antiAlias,
-                  child: InkWell(
-                    onTap: () => setState(() => _voteExpanded[id] = !expanded),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
-                      ),
-                      decoration: const BoxDecoration(
-                        border: Border(
-                          left: BorderSide(color: Color(0xFFA34076), width: 4),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              (vote['question'] ?? 'Bình chọn').toString(),
-                              style: const TextStyle(
-                                fontSize: 19,
-                                height: 1.3,
-                                fontWeight: FontWeight.w800,
-                                color: Color(0xFF753054),
+      children: [
+        for (final vote in _votes) ...[
+          Builder(
+            builder: (context) {
+              final id = vote['id'].toString();
+              final expanded =
+                  _voteExpanded[id] ?? !(_knownVoteIds?.contains(id) ?? false);
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Material(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
+                            onTap: () =>
+                                setState(() => _voteExpanded[id] = !expanded),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 12,
+                              ),
+                              decoration: const BoxDecoration(
+                                border: Border(
+                                  left: BorderSide(
+                                    color: Color(0xFFA34076),
+                                    width: 4,
+                                  ),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      (vote['question'] ?? 'Bình chọn')
+                                          .toString(),
+                                      style: const TextStyle(
+                                        fontSize: 19,
+                                        height: 1.3,
+                                        fontWeight: FontWeight.w800,
+                                        color: Color(0xFF753054),
+                                      ),
+                                    ),
+                                  ),
+                                  AnimatedRotation(
+                                    turns: expanded ? .5 : 0,
+                                    duration: const Duration(milliseconds: 200),
+                                    child: const Icon(
+                                      Icons.keyboard_arrow_down_rounded,
+                                      size: 28,
+                                      color: Color(0xFFA34076),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
-                          AnimatedRotation(
-                            turns: expanded ? .5 : 0,
-                            duration: const Duration(milliseconds: 220),
-                            child: const Icon(
-                              Icons.keyboard_arrow_down_rounded,
-                              size: 28,
-                              color: Color(0xFFA34076),
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
+                      const SizedBox(width: 8),
+                      _deleteButton(vote, 'votes', 'bình chọn'),
+                    ],
+                  ),
+                  if (expanded) ...[
+                    const SizedBox(height: 4),
+                    _voteOptions(vote),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFA34076),
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor: const Color(0xFFE5CAD9),
+                            disabledForegroundColor: const Color(0xFF947286),
+                          ),
+                          onPressed:
+                              _busy ||
+                                  (vote['options'] as List? ?? const [])
+                                          .length >=
+                                      20
+                              ? null
+                              : () => _addVoteOption(vote),
+                          icon: const Icon(Icons.add, size: 18),
+                          label: const Text('Thêm đáp án'),
+                        ),
+                      ],
                     ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              if (canEdit) ...[
-                IconButton.filledTonal(
-                  tooltip: 'Sửa bình chọn',
-                  style: IconButton.styleFrom(
-                    backgroundColor: const Color(0xFFF1E6F8),
-                    foregroundColor: const Color(0xFF7860A3),
-                  ),
-                  icon: const Icon(Icons.edit_outlined, size: 22),
-                  onPressed: _busy ? null : () => _editPoll(vote),
-                ),
-                const SizedBox(width: 6),
-              ],
-              _deleteButton(vote, 'votes', 'bình chọn'),
-            ],
+                  ],
+                ],
+              );
+            },
           ),
-          // Thu gọn: chỉ còn tiêu đề. Mở rộng: bảng / đáp án đầy đủ.
-          AnimatedSize(
-            duration: const Duration(milliseconds: 240),
-            curve: Curves.easeInOutCubic,
-            alignment: Alignment.topCenter,
-            child: ClipRect(
-              child: expanded
-                  ? Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: _voteBody(vote),
-                    )
-                  : const SizedBox(width: double.infinity),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _voteBody(Map<String, dynamic> vote) {
-    final deadline = _deadlineOf(vote);
-    final closed = _isClosed(vote);
-    final isMeeting = vote['kind']?.toString() == 'meeting';
-    final anonymous = vote['anonymous'] == true;
-    final note = [
-      if (deadline != null)
-        closed
-            ? 'Đã hết hạn lúc ${formatVoteDeadline(deadline)}'
-            : 'Hạn: ${formatVoteDeadline(deadline)}',
-      if (anonymous) 'Ẩn danh',
-      if (!isMeeting && _isMultiple(vote)) 'Chọn nhiều đáp án',
-    ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (note.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
-            child: Text(
-              note.join(' · '),
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: closed ? const Color(0xFFB03D59) : const Color(0xFF7A6A86),
-              ),
-            ),
-          ),
-        _voteOptions(vote),
-        if (!isMeeting) ...[
-          const SizedBox(height: 10),
-          FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFFA34076),
-              foregroundColor: Colors.white,
-              disabledBackgroundColor: const Color(0xFFE5CAD9),
-              disabledForegroundColor: const Color(0xFF947286),
-            ),
-            onPressed:
-                _busy || closed || (vote['options'] as List? ?? const []).length >= 20
-                ? null
-                : () => _addVoteOption(vote),
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text('Thêm đáp án'),
-          ),
+          const SizedBox(height: 12),
         ],
       ],
     );
@@ -1146,42 +964,45 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   // HIỂN THỊ KẾT QUẢ VÀ LỰA CHỌN CỦA TỪNG NGƯỜI
   // =========================================================
 
-  /// Mỗi thành viên một màu cố định (theo thứ tự uid) trên mọi thiết bị.
-  List<VoteMember> get _voteMembers {
-    final rows = [..._members]
-      ..sort(
-        (a, b) => (a['uid'] ?? a['id'] ?? '').toString().compareTo(
-          (b['uid'] ?? b['id'] ?? '').toString(),
-        ),
-      );
-    return [
-      for (var i = 0; i < rows.length; i++)
-        VoteMember(
-          uid: (rows[i]['uid'] ?? rows[i]['id'] ?? '').toString(),
-          name: (rows[i]['displayName'] ?? rows[i]['username'] ?? 'Thành viên')
-              .toString(),
-          avatarUrl: (rows[i]['avatarUrl'] ?? '').toString(),
-          color: memberColorFor(i),
-        ),
-    ];
+  String _initialsOf(String name) {
+    final words = name.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty);
+    if (words.isEmpty) return '?';
+    return words.take(2).map((w) => w[0].toUpperCase()).join();
   }
 
+  /// Bình chọn loại 'meeting': lưới When2meet (dòng = khung giờ, cột = người).
   Widget _meetingVote(Map<String, dynamic> vote) {
+    final List<Map<String, dynamic>> members = [
+      for (final member in _members)
+        {
+          'uid': (member['uid'] ?? member['id'] ?? '').toString(),
+          'name': (member['displayName'] ?? member['username'] ?? 'TV')
+              .toString(),
+          'initials': _initialsOf(
+            (member['displayName'] ?? member['username'] ?? '?').toString(),
+          ),
+        },
+    ];
     final total = (vote['totalVotes'] as num? ?? 0).toInt();
-    final closed = _isClosed(vote);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        MeetingVoteGrid(
-          vote: vote,
-          members: _voteMembers,
-          myUid: _myUid,
-          enabled: !closed,
-          onToggle: (index) => _toggleOption(vote, index),
-        ),
+        MeetingVoteGrid(vote: vote, members: members),
         const SizedBox(height: 8),
-        Text('Số người đã tham gia: $total'),
+        Wrap(
+          spacing: 12,
+          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text('Số người đã tham gia: $total'),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : () => _editVote(vote),
+              icon: const Icon(Icons.edit_calendar_outlined),
+              label: const Text('Chọn khung giờ rảnh'),
+            ),
+          ],
+        ),
       ],
     );
   }
@@ -1190,26 +1011,14 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     if (vote['kind']?.toString() == 'meeting') return _meetingVote(vote);
 
     final options = (vote['options'] as List? ?? const []).toList();
+
     final counts = (vote['counts'] as List? ?? const []).toList();
+
     final myVotes = <int>{
       ...((vote['myVotes'] as List?) ?? const []).whereType<int>(),
     };
-    final total = (vote['totalVotes'] as num? ?? 0).toInt();
-    final anonymous = vote['anonymous'] == true;
-    final multiple = _isMultiple(vote);
-    final closed = _isClosed(vote);
-    final memberMap = {for (final m in _voteMembers) m.uid: m};
 
-    final uidsByOption = <int, List<String>>{};
-    if (!anonymous) {
-      for (final voter in (vote['voters'] as List? ?? const [])) {
-        if (voter is! Map) continue;
-        final uid = voter['uid']?.toString() ?? '';
-        for (final i in (voter['options'] as List? ?? const [])) {
-          if (i is int) uidsByOption.putIfAbsent(i, () => []).add(uid);
-        }
-      }
-    }
+    final total = (vote['totalVotes'] as num? ?? 0).toInt();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1222,19 +1031,15 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
               borderRadius: BorderRadius.circular(18),
               child: InkWell(
                 borderRadius: BorderRadius.circular(18),
-                onTap: closed ? null : () => _toggleOption(vote, i),
+                onTap: _busy ? null : () => _editVote(vote),
                 child: Padding(
                   padding: const EdgeInsets.all(12),
                   child: Row(
                     children: [
                       Icon(
-                        multiple
-                            ? (myVotes.contains(i)
-                                  ? Icons.check_box_rounded
-                                  : Icons.check_box_outline_blank_rounded)
-                            : (myVotes.contains(i)
-                                  ? Icons.radio_button_checked_rounded
-                                  : Icons.radio_button_unchecked_rounded),
+                        myVotes.contains(i)
+                            ? Icons.check_box_rounded
+                            : Icons.check_box_outline_blank_rounded,
                         color: const Color(0xFF7666A5),
                       ),
                       const SizedBox(width: 10),
@@ -1256,11 +1061,6 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                           ],
                         ),
                       ),
-                      if (!anonymous)
-                        VoterAvatars(
-                          uids: uidsByOption[i] ?? const [],
-                          members: memberMap,
-                        ),
                     ],
                   ),
                 ),
@@ -1272,7 +1072,6 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
       ],
     );
   }
-
   // =========================================================
   // CHỌN DỰ ÁN
   // =========================================================
