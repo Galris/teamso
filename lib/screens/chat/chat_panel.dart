@@ -15,12 +15,7 @@ class ChatPanel extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       decoration: const BoxDecoration(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFF0E9FC), Color(0xFFFAF7FF), Color(0xFFFDF9FD)],
-          stops: [0, .6, 1],
-        ),
+        color: Colors.white,
       ),
       child: child,
     ),
